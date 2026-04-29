@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comparador de Imóveis — BH</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🏠</span>
+        <div>
+          <h1>Comparador de Imóveis</h1>
+          <p>Belo Horizonte · Ranking inteligente</p>
+        </div>
+      </div>
+      <button class="btn btn-outline" id="btnPesos">⚙️ Ajustar Pesos</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Adicionar imóvel -->
+    <section class="card add-card">
+      <h2>Adicionar imóvel</h2>
+      <p class="hint">Cole o link de um imóvel (ZAP Imóveis, VivaReal, OLX ou qualquer site)</p>
+      <div class="add-form">
+        <input
+          type="url"
+          id="inputUrl"
+          placeholder="https://www.zapimoveis.com.br/imovel/..."
+          autocomplete="off"
+        />
+        <button class="btn btn-primary" id="btnAdicionar">Adicionar</button>
+      </div>
+      <div id="addMsg" class="msg hidden"></div>
+    </section>
+
+    <!-- Lista de imóveis -->
+    <section id="listaSection">
+      <div class="lista-header">
+        <h2>Imóveis comparados <span id="totalCount" class="badge-count"></span></h2>
+        <div class="filtros">
+          <select id="filtroStatus">
+            <option value="">Todos os status</option>
+            <option value="ok">Processados</option>
+            <option value="processando">Processando</option>
+            <option value="erro">Com erro</option>
+            <option value="sem_coordenadas">Sem localização</option>
+          </select>
+          <button class="btn btn-sm btn-outline" id="btnAtualizar">🔄 Atualizar</button>
+        </div>
+      </div>
+
+      <div id="loadingLista" class="loading-state hidden">
+        <div class="spinner"></div>
+        <p>Carregando imóveis...</p>
+      </div>
+
+      <div id="emptyState" class="empty-state hidden">
+        <span class="empty-icon">🏘️</span>
+        <p>Nenhum imóvel adicionado ainda.</p>
+        <p class="hint">Cole um link acima para começar a comparar.</p>
+      </div>
+
+      <div id="listaImoveis" class="lista-grid"></div>
+    </section>
+  </main>
+
+  <!-- Modal: Pesos -->
+  <div id="modalPesos" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>⚙️ Ajustar Pesos do Ranking</h3>
+        <button class="modal-close" id="btnFecharPesos">✕</button>
+      </div>
+      <p class="hint">Defina a importância de cada critério (0–100). O total não precisa somar 100.</p>
+      <div class="pesos-grid" id="pesosForm">
+        <!-- Gerado via JS -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" id="btnCancelarPesos">Cancelar</button>
+        <button class="btn btn-primary" id="btnSalvarPesos">Salvar e Recalcular</button>
+      </div>
+      <div id="pesosMsg" class="msg hidden"></div>
+    </div>
+  </div>
+
+  <!-- Modal: Detalhe -->
+  <div id="modalDetalhe" class="modal-overlay hidden">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="detalheTitle">Detalhes do Imóvel</h3>
+        <button class="modal-close" id="btnFecharDetalhe">✕</button>
+      </div>
+      <div id="detalheContent"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
