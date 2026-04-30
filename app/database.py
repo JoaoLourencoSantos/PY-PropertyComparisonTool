@@ -111,6 +111,13 @@ def get_imovel(imovel_id):
     return dict(row) if row else None
 
 
+def get_imovel_by_url(url: str):
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM imoveis WHERE url = ?", (url,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def upsert_imovel(data: dict):
     conn = get_connection()
     cur = conn.cursor()

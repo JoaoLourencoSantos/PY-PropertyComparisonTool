@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request, render_template, abort, Response
 from app.database import (
     get_all_imoveis,
     get_imovel,
+    get_imovel_by_url,
     upsert_imovel,
     delete_imovel,
     get_pesos,
@@ -130,6 +131,16 @@ def adicionar_imovel():
 
     # Limpa parâmetros de tracking antes de salvar (mesma lógica do scraper)
     url = url.split("?")[0].rstrip("/")
+
+    # Verifica duplicata
+    existente = get_imovel_by_url(url)
+    if existente:
+        return jsonify({
+            "erro": "Este imóvel já está na lista.",
+            "id": existente["id"],
+            "status": existente["status"],
+            "duplicado": True,
+        }), 409
 
     # Salva imediatamente com status pendente
     dados_iniciais = {
