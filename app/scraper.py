@@ -25,36 +25,55 @@ _thread_local = threading.local()
 def _fetch_html(url: str, wait_until: str = "domcontentloaded",
                 extra_wait_ms: int = 2000) -> Optional[str]:
     """Abre a URL com Playwright e retorna o HTML renderizado."""
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    pw = None
+    browser = None
     try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage",
-                      "--disable-blink-features=AutomationControlled"],
-            )
-            ctx = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-                locale="pt-BR",
-                viewport={"width": 1280, "height": 800},
-            )
-            ctx.add_init_script(
-                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
-            )
-            page = ctx.new_page()
-            page.goto(url, wait_until=wait_until, timeout=90000)
-            if extra_wait_ms:
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage",
+                  "--disable-blink-features=AutomationControlled"],
+        )
+        ctx = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            locale="pt-BR",
+            viewport={"width": 1280, "height": 800},
+        )
+        ctx.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+        )
+        page = ctx.new_page()
+        try:
+            page.goto(url, wait_until=wait_until, timeout=60000)
+        except PWTimeout:
+            logger.warning("Playwright timeout no goto — tentando capturar HTML parcial: %s", url)
+        if extra_wait_ms:
+            try:
                 page.wait_for_timeout(extra_wait_ms)
-            html = page.content()
-            browser.close()
-            return html
+            except Exception:
+                pass
+        html = page.content()
+        return html
     except Exception as e:
         logger.error("Playwright erro: %s — %s", url, e)
         return None
+    finally:
+        # Garante que browser e playwright sempre fecham, mesmo em caso de erro
+        try:
+            if browser:
+                browser.close()
+        except Exception:
+            pass
+        try:
+            if pw:
+                pw.stop()
+        except Exception:
+            pass
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

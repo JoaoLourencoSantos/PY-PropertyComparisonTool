@@ -82,7 +82,16 @@ def init_db():
     """)
     conn.commit()
 
+    # Recuperação: imóveis presos em 'processando' há mais de 5 min voltam para 'pendente'
+    # (podem ter ficado presos por crash do servidor ou timeout do Playwright)
+    cur.execute("""
+        UPDATE imoveis SET status = 'pendente'
+        WHERE status = 'processando'
+          AND (atualizado_em IS NULL
+               OR atualizado_em < datetime('now', '-5 minutes'))
+    """)
     conn.commit()
+
     conn.close()
 
 

@@ -242,15 +242,22 @@ function renderLista() {
   const processando = todosImoveis.some(im => im.status === "processando");
   if (processando && !pollingTimer) {
     pollingTimer = setInterval(async () => {
-      const res  = await fetch(`${API}/api/imoveis`);
-      const novos = await res.json();
-      if (!novos.some(im => im.status === "processando")) {
-        clearInterval(pollingTimer);
-        pollingTimer = null;
+      try {
+        const res   = await fetch(`${API}/api/imoveis`);
+        const novos = await res.json();
+        todosImoveis = novos;
+        renderLista();
+        if (!novos.some(im => im.status === "processando")) {
+          clearInterval(pollingTimer);
+          pollingTimer = null;
+        }
+      } catch (e) {
+        console.error("Polling erro:", e);
       }
-      todosImoveis = novos;
-      renderLista();
     }, 3000);
+  } else if (!processando && pollingTimer) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
   }
 }
 

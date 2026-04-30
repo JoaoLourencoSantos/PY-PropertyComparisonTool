@@ -120,6 +120,9 @@ def adicionar_imovel():
     if not url:
         return jsonify({"erro": "URL é obrigatória"}), 400
 
+    # Limpa parâmetros de tracking antes de salvar (mesma lógica do scraper)
+    url = url.split("?")[0].rstrip("/")
+
     # Salva imediatamente com status pendente
     dados_iniciais = {
         "url": url,
@@ -198,11 +201,46 @@ def salvar_pesos():
 
 # ─── Processamento em background ─────────────────────────────────────────────
 
+# Timeout total para processar um imóvel (scraping + distâncias), em segundos.
+# Chromium pode travar — esse limite garante que o status nunca fica preso.
+_TIMEOUT_PROCESSAMENTO = 240
+
+
 def _processar_imovel(imovel_id: int, url: str):
     """
     Faz scraping + geocodificação + distâncias + score.
     Roda em thread separada para não bloquear a requisição.
+    Usa um executor interno com timeout para garantir que o status
+    nunca fique preso em 'processando' indefinidamente.
     """
+    import concurrent.futures as cf
+
+    def _executar():
+        _processar_imovel_interno(imovel_id, url)
+
+    try:
+        with cf.ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_executar)
+            try:
+                fut.result(timeout=_TIMEOUT_PROCESSAMENTO)
+            except cf.TimeoutError:
+                logger.error(
+                    "Timeout de %ds ao processar imóvel %d — marcando como erro",
+                    _TIMEOUT_PROCESSAMENTO, imovel_id,
+                )
+                _marcar_erro(imovel_id, url, f"Timeout após {_TIMEOUT_PROCESSAMENTO}s")
+            except Exception as e:
+                logger.exception("Erro ao processar imóvel %d: %s", imovel_id, e)
+                _marcar_erro(imovel_id, url, str(e))
+    except Exception as e:
+        # Segurança extra: garante que qualquer falha fora do executor
+        # também marca o erro no banco
+        logger.exception("Erro crítico ao processar imóvel %d: %s", imovel_id, e)
+        _marcar_erro(imovel_id, url, str(e))
+
+
+def _processar_imovel_interno(imovel_id: int, url: str):
+    """Lógica real de processamento — chamada dentro de um executor com timeout."""
     # Chaves obrigatórias para o upsert — garante que nenhuma falta
     _REQUIRED = {
         "url": url, "origem": None, "titulo": None, "preco": None,
@@ -217,13 +255,18 @@ def _processar_imovel(imovel_id: int, url: str):
     }
 
     try:
-        logger.info("Processando imóvel %d: %s", imovel_id, url)
+        logger.info("[%d] INÍCIO — %s", imovel_id, url)
 
         # 1. Scraping
+        logger.info("[%d] Etapa 1/5: scraping...", imovel_id)
         dados = scrape_imovel(url)
         if "erro" in dados:
+            logger.warning("[%d] Scraping falhou: %s", imovel_id, dados["erro"])
             _marcar_erro(imovel_id, url, dados["erro"])
             return
+        logger.info("[%d] Scraping OK — preco=%s area=%s quartos=%s lat=%s lng=%s",
+                    imovel_id, dados.get("preco"), dados.get("area_m2"),
+                    dados.get("quartos"), dados.get("lat"), dados.get("lng"))
 
         # Garante todas as chaves necessárias
         base = dict(_REQUIRED)
@@ -233,43 +276,60 @@ def _processar_imovel(imovel_id: int, url: str):
 
         # 2. Geocodificação (se não veio do scraper)
         if not dados.get("lat") and dados.get("endereco"):
+            logger.info("[%d] Etapa 2/5: geocodificando '%s'...", imovel_id, dados["endereco"])
             lat, lng = geocode_address(dados["endereco"])
             dados["lat"] = lat
             dados["lng"] = lng
+            logger.info("[%d] Geocode OK — lat=%s lng=%s", imovel_id, lat, lng)
+        else:
+            logger.info("[%d] Etapa 2/5: geocode pulado (lat/lng já disponíveis ou sem endereço)", imovel_id)
 
         # 3. Distâncias
         if dados.get("lat") and dados.get("lng"):
+            logger.info("[%d] Etapa 3/5: calculando distâncias (lat=%s, lng=%s)...",
+                        imovel_id, dados["lat"], dados["lng"])
             distancias = calcular_distancias(dados["lat"], dados["lng"])
             dados.update(distancias)
             dados["status"] = "ok"
+            logger.info("[%d] Distâncias OK — centro=%.1fkm super=%s linhas=%s",
+                        imovel_id,
+                        distancias.get("dist_centro_carro_km") or 0,
+                        distancias.get("dist_supermercado_km"),
+                        "sim" if distancias.get("linhas_onibus") else "não")
         else:
+            logger.warning("[%d] Etapa 3/5: sem coordenadas — distâncias ignoradas", imovel_id)
             dados["status"] = "sem_coordenadas"
 
         # 4. Salva
+        logger.info("[%d] Etapa 4/5: salvando no banco...", imovel_id)
         upsert_imovel(dados)
 
         # 5. Recalcula scores de todos
+        logger.info("[%d] Etapa 5/5: recalculando scores...", imovel_id)
         calcular_score_todos()
 
-        logger.info("Imóvel %d processado com sucesso.", imovel_id)
+        logger.info("[%d] ✅ CONCLUÍDO com status '%s'", imovel_id, dados["status"])
 
     except Exception as e:
-        logger.exception("Erro ao processar imóvel %d: %s", imovel_id, e)
+        logger.exception("[%d] ❌ Exceção não tratada: %s", imovel_id, e)
         _marcar_erro(imovel_id, url, str(e))
 
 
 def _marcar_erro(imovel_id: int, url: str, mensagem: str):
-    dados = {
-        "id": imovel_id,
-        "url": url, "origem": None,
-        "titulo": f"Erro: {mensagem[:80]}",
-        "preco": None, "area_m2": None, "quartos": None, "banheiros": None,
-        "vagas": None, "endereco": None, "bairro": None, "cidade": None,
-        "lat": None, "lng": None,
-        "dist_supermercado_km": None, "dist_centro_carro_km": None,
-        "dist_centro_onibus_km": None, "tempo_centro_carro_min": None,
-        "tempo_centro_onibus_min": None, "linhas_onibus": None,
-        "imagem_url": None, "imagens_json": None,
-        "score": None, "status": "erro",
-    }
-    upsert_imovel(dados)
+    try:
+        dados = {
+            "id": imovel_id,
+            "url": url, "origem": None,
+            "titulo": f"Erro: {mensagem[:80]}",
+            "preco": None, "area_m2": None, "quartos": None, "banheiros": None,
+            "vagas": None, "endereco": None, "bairro": None, "cidade": None,
+            "lat": None, "lng": None,
+            "dist_supermercado_km": None, "dist_centro_carro_km": None,
+            "dist_centro_onibus_km": None, "tempo_centro_carro_min": None,
+            "tempo_centro_onibus_min": None, "linhas_onibus": None,
+            "imagem_url": None, "imagens_json": None,
+            "score": None, "status": "erro",
+        }
+        upsert_imovel(dados)
+    except Exception as e:
+        logger.exception("Falha ao marcar erro para imóvel %d: %s", imovel_id, e)

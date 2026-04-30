@@ -35,11 +35,15 @@ OVERPASS_MIRRORS = [
     "https://overpass.osm.ch/api/interpreter",
 ]
 
+# Timeout por mirror e número máximo de mirrors a tentar por chamada
+_OVERPASS_TIMEOUT = 10   # segundos por mirror (era 20)
+_OVERPASS_MAX_TRY = 2    # tenta no máximo 2 mirrors (não todos os 3)
+
 def _overpass_post(query: str) -> dict:
     """Tenta os mirrors do Overpass em ordem até um responder."""
-    for url in OVERPASS_MIRRORS:
+    for url in OVERPASS_MIRRORS[:_OVERPASS_MAX_TRY]:
         try:
-            resp = requests.post(url, data={"data": query}, headers=HEADERS, timeout=20)
+            resp = requests.post(url, data={"data": query}, headers=HEADERS, timeout=_OVERPASS_TIMEOUT)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
@@ -326,14 +330,14 @@ def calcular_distancias(lat: float, lng: float) -> dict:
         fut_linhas = executor.submit(buscar_linhas_onibus, lat, lng)
 
         try:
-            result["dist_supermercado_km"] = fut_super.result(timeout=35)
+            result["dist_supermercado_km"] = fut_super.result(timeout=25)
         except concurrent.futures.TimeoutError:
             logger.warning("Timeout ao buscar supermercado — ignorando")
         except Exception as e:
             logger.warning("Erro ao buscar supermercado: %s", e)
 
         try:
-            linhas = fut_linhas.result(timeout=35)
+            linhas = fut_linhas.result(timeout=25)
             result["linhas_onibus"] = json.dumps(linhas, ensure_ascii=False) if linhas else None
         except concurrent.futures.TimeoutError:
             logger.warning("Timeout ao buscar linhas de ônibus — ignorando")
