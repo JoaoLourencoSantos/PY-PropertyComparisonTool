@@ -11,5 +11,10 @@ services:
         value: production
       - key: PYTHONUNBUFFERED
         value: "1"
+      # Proxy residencial para contornar bloqueio Cloudflare do VivaReal/ZAP
+      # Formato: http://usuario:senha@host:porta
+      # Deixe vazio para desativar (scraping local funciona sem proxy)
+      - key: PROXY_URL
+        value: ""
 
     healthCheckPath: /

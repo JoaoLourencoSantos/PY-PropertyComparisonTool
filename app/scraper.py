@@ -25,16 +25,26 @@ _thread_local = threading.local()
 def _fetch_html(url: str, wait_until: str = "domcontentloaded",
                 extra_wait_ms: int = 2000) -> Optional[str]:
     """Abre a URL com Playwright e retorna o HTML renderizado."""
+    import os
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     pw = None
     browser = None
     try:
         pw = sync_playwright().start()
-        browser = pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage",
-                  "--disable-blink-features=AutomationControlled"],
-        )
+
+        # Proxy opcional via variável de ambiente PROXY_URL
+        # Formato: http://user:pass@host:port  ou  http://host:port
+        proxy_url = os.environ.get("PROXY_URL", "").strip()
+        launch_kwargs = {
+            "headless": True,
+            "args": ["--no-sandbox", "--disable-dev-shm-usage",
+                     "--disable-blink-features=AutomationControlled"],
+        }
+        if proxy_url:
+            launch_kwargs["proxy"] = {"server": proxy_url}
+            logger.info("Usando proxy: %s", proxy_url.split("@")[-1])  # oculta credenciais
+
+        browser = pw.chromium.launch(**launch_kwargs)
         ctx = browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -63,7 +73,6 @@ def _fetch_html(url: str, wait_until: str = "domcontentloaded",
         logger.error("Playwright erro: %s — %s", url, e)
         return None
     finally:
-        # Garante que browser e playwright sempre fecham, mesmo em caso de erro
         try:
             if browser:
                 browser.close()
@@ -479,21 +488,23 @@ def scrape_imovel(url: str) -> dict:
     if not html:
         return {"erro": "Não foi possível acessar a URL"}
 
-    # Detecta página de bloqueio/CAPTCHA — HTML muito curto ou sem conteúdo útil
-    html_lower = html.lower()
+    # Detecta página de bloqueio/CAPTCHA — verifica sinais específicos no <title>
+    # Não usa len(html) nem presença genérica de "cloudflare" (aparece em scripts legítimos)
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    page_title  = title_match.group(1).strip().lower() if title_match else ""
+
     is_blocked = (
-        len(html) < 5000 or
-        ("captcha" in html_lower) or
-        ("access denied" in html_lower) or
-        ("blocked" in html_lower and "script" not in html_lower[:500]) or
-        # VivaReal/ZAP bloqueados retornam página só com menu de navegação
-        ("__next_f" not in html and "application/ld+json" not in html and
-         "og:title" not in html and len(html) < 50000)
+        "attention required" in page_title or
+        "just a moment" in page_title or        # Cloudflare challenge
+        "captcha" in page_title or
+        "access denied" in page_title or
+        len(html) < 2000                         # página vazia/erro de rede
     )
+
     if is_blocked:
-        logger.warning("Possível bloqueio anti-bot detectado para %s (html=%d bytes, preview: %s)",
-                       url_clean, len(html), html[:200].replace("\n", " "))
-        return {"erro": f"Site bloqueou o acesso (anti-bot). HTML recebido: {len(html)} bytes"}
+        logger.warning("Bloqueio detectado para %s (title=%r, html=%d bytes)",
+                       url_clean, page_title, len(html))
+        return {"erro": f"Site bloqueou o acesso (Cloudflare/CAPTCHA). Título: '{page_title}'"}
 
     data = {}
 
