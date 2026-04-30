@@ -15,6 +15,6 @@ services:
       # Formato: http://usuario:senha@host:porta
       # Deixe vazio para desativar (scraping local funciona sem proxy)
       - key: PROXY_URL
-        value: ""
+        value: "http://ilegtyfg:pekuos5xgpma@31.59.20.176:6754"
 
     healthCheckPath: /
