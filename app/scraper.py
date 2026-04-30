@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 _thread_local = threading.local()
 
 
-def _fetch_html(url: str) -> Optional[str]:
+def _fetch_html(url: str, wait_until: str = "domcontentloaded",
+                extra_wait_ms: int = 2000) -> Optional[str]:
     """Abre a URL com Playwright e retorna o HTML renderizado."""
     from playwright.sync_api import sync_playwright
     try:
@@ -45,8 +46,9 @@ def _fetch_html(url: str) -> Optional[str]:
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
             )
             page = ctx.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(2000)
+            page.goto(url, wait_until=wait_until, timeout=90000)
+            if extra_wait_ms:
+                page.wait_for_timeout(extra_wait_ms)
             html = page.content()
             browser.close()
             return html
@@ -418,7 +420,18 @@ def _extract_next_f_basedata_v2(html: str) -> dict:
 
 # ── Dispatcher principal ─────────────────────────────────────────────────────
 
+def _detectar_origem(url: str) -> str:
+    """Detecta o portal de origem com base na URL."""
+    u = url.lower()
+    if "zapimoveis" in u:   return "ZAP Imóveis"
+    if "vivareal" in u:     return "VivaReal"
+    if "quintoandar" in u:  return "QuintoAndar"
+    if "olx" in u:          return "OLX"
+    return "Outro"
+
+
 _DEFAULTS = {
+    "origem": None,
     "titulo": None, "preco": None, "area_m2": None, "quartos": None,
     "banheiros": None, "vagas": None, "endereco": None, "bairro": None,
     "cidade": "Belo Horizonte", "lat": None, "lng": None,
@@ -431,32 +444,274 @@ _DEFAULTS = {
 
 
 def scrape_imovel(url: str) -> dict:
-    html = _fetch_html(url)
+    # Limpa parâmetros de query da URL (tracking, etc.)
+    url_clean = url.split("?")[0].rstrip("/")
+
+    # QuintoAndar renderiza o JSON-LD server-side no <head> — não depende de
+    # hidratação do React. Usar "domcontentloaded" é suficiente e evita o
+    # timeout causado por "networkidle" (o site tem dezenas de scripts de
+    # analytics que nunca param de fazer requests, impedindo o networkidle
+    # de ser atingido dentro do timeout de 90s).
+    html = _fetch_html(
+        url_clean,
+        wait_until="domcontentloaded",
+        extra_wait_ms=1500,
+    )
     if not html:
         return {"erro": "Não foi possível acessar a URL"}
 
     data = {}
 
-    # 1. Regex direto no HTML (mais robusto para ZAP/VivaReal App Router)
-    regex_data = _extract_next_f_basedata_v2(html)
-    data.update(regex_data)
+    # Dispatcher por domínio
+    domain = url_clean.lower()
+    if "quintoandar" in domain:
+        data = _scrape_quintoandar(html, url_clean)
+    else:
+        # 1. Regex direto no HTML (ZAP/VivaReal App Router)
+        data = _extract_next_f_basedata_v2(html)
 
-    # 2. JSON-LD para título e imagem
-    jsonld_data = _extract_json_ld(html)
-    for k, v in jsonld_data.items():
-        if not data.get(k):
-            data[k] = v
+        # 2. JSON-LD para título e imagem
+        jsonld_data = _extract_json_ld(html)
+        for k, v in jsonld_data.items():
+            if not data.get(k):
+                data[k] = v
 
-    # 3. Meta tags como fallback
-    meta_data = _extract_meta(html)
-    for k, v in meta_data.items():
-        if not data.get(k):
-            data[k] = v
+        # 3. Meta tags como fallback
+        meta_data = _extract_meta(html)
+        for k, v in meta_data.items():
+            if not data.get(k):
+                data[k] = v
 
     if not data.get("preco") and not data.get("area_m2") and not data.get("titulo"):
         return {"erro": "Não foi possível extrair dados do imóvel"}
 
     result = dict(_DEFAULTS)
-    result["url"] = url
+    result["url"] = url_clean
+    result["origem"] = _detectar_origem(url_clean)
     result.update({k: v for k, v in data.items() if v is not None})
     return result
+
+
+# ── QuintoAndar ───────────────────────────────────────────────────────────────
+
+_QA_BASE = "https://www.quintoandar.com.br"
+
+
+def _qa_abs_img(url: str) -> str:
+    """Garante URL absoluta e prefere resolução xlg para imagens do QuintoAndar."""
+    if not url:
+        return url
+    if not url.startswith("http"):
+        url = f"{_QA_BASE}{url}"
+    # Sobe para resolução maior quando possível
+    for low, high in (("/img/med/", "/img/xlg/"), ("/img/sml/", "/img/xlg/"),
+                      ("/img/xsm/", "/img/xlg/")):
+        url = url.replace(low, high)
+    return url
+
+
+def _scrape_quintoandar(html: str, url: str) -> dict:
+    """
+    Extrai dados do QuintoAndar via JSON-LD @type Apartment (fonte primária)
+    com fallback para meta tags og:* e description.
+
+    O QuintoAndar renderiza o JSON-LD schema.org/Apartment server-side no
+    <head> — não depende de __NEXT_DATA__ nem de hidratação do React.
+
+    Campos extraídos:
+      titulo, preco, area_m2, quartos, banheiros, vagas,
+      endereco, bairro, cidade, lat, lng,
+      imagem_url, imagens_json
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+    data: dict = {}
+
+    # ── 1. JSON-LD @type Apartment ────────────────────────────────────────────
+    apartment_ld = None
+    for script in soup.find_all("script", {"type": "application/ld+json"}):
+        try:
+            jd = json.loads(script.string or "")
+            if jd.get("@type") == "Apartment":
+                apartment_ld = jd
+                break
+        except Exception:
+            continue
+
+    if apartment_ld:
+        logger.info("QuintoAndar: JSON-LD Apartment encontrado para %s", url)
+
+        # Título — vem limpo no JSON-LD (sem o artefato &nbsp; do <title>)
+        data["titulo"] = apartment_ld.get("name") or None
+
+        # Preço — potentialAction.price (BuyAction) é o campo mais confiável
+        action = apartment_ld.get("potentialAction") or {}
+        price_val = action.get("price")
+        if price_val is not None:
+            try:
+                data["preco"] = float(price_val)
+            except (TypeError, ValueError):
+                data["preco"] = _parse_numero(price_val)
+        else:
+            # Fallback: offers.price
+            offers = apartment_ld.get("offers") or {}
+            if offers.get("price") is not None:
+                data["preco"] = _parse_numero(offers["price"])
+
+        # Área — floorSize (m²)
+        floor_size = apartment_ld.get("floorSize")
+        if floor_size is not None:
+            try:
+                data["area_m2"] = float(floor_size)
+            except (TypeError, ValueError):
+                data["area_m2"] = _parse_numero(floor_size)
+
+        # Quartos — numberOfBedrooms tem precedência sobre numberOfRooms
+        for field in ("numberOfBedrooms", "numberOfRooms"):
+            val = apartment_ld.get(field)
+            if val is not None:
+                try:
+                    data["quartos"] = int(val)
+                    break
+                except (TypeError, ValueError):
+                    pass
+
+        # Banheiros
+        bath_val = apartment_ld.get("numberOfFullBathrooms")
+        if bath_val is not None:
+            try:
+                data["banheiros"] = int(bath_val)
+            except (TypeError, ValueError):
+                pass
+
+        # Vagas — amenityFeature é uma lista de LocationFeatureSpecification.
+        # O QuintoAndar não expõe o número exato de vagas nesse campo;
+        # usa "Box" ou "Garagem" com value=true/int.
+        # Estratégia: soma features de vaga com value numérico; se só booleano,
+        # conta quantas features de vaga existem (cada uma = 1 vaga).
+        vagas_count = 0
+        vagas_bool = 0
+        for feat in (apartment_ld.get("amenityFeature") or []):
+            name = (feat.get("name") or "").lower()
+            if any(k in name for k in ("vaga", "garagem", "parking", "box")):
+                val = feat.get("value")
+                if isinstance(val, (int, float)) and val > 0:
+                    vagas_count += int(val)
+                elif val is True:
+                    vagas_bool += 1
+        if vagas_count:
+            data["vagas"] = vagas_count
+        elif vagas_bool:
+            data["vagas"] = vagas_bool
+
+        # Endereço — pode ser string "Rua X, Bairro, Cidade" ou objeto PostalAddress
+        addr_raw = apartment_ld.get("address") or ""
+        if isinstance(addr_raw, str) and addr_raw.strip():
+            # Ex: "Rua Alípio de Melo, Jardim Montanhês, Belo Horizonte"
+            parts = [p.strip() for p in addr_raw.split(",")]
+            data["endereco"] = addr_raw.strip()
+            if len(parts) >= 2:
+                data["bairro"] = parts[1].strip()
+            data["cidade"] = parts[2].strip() if len(parts) >= 3 else "Belo Horizonte"
+        elif isinstance(addr_raw, dict):
+            street = addr_raw.get("streetAddress") or ""
+            neighborhood = addr_raw.get("addressLocality") or ""
+            city = addr_raw.get("addressRegion") or "Belo Horizonte"
+            data["endereco"] = ", ".join(filter(None, [street, neighborhood])) or None
+            data["bairro"] = neighborhood or None
+            data["cidade"] = city
+
+        # Coordenadas — geo.latitude / geo.longitude
+        geo = apartment_ld.get("geo") or {}
+        lat_val = geo.get("latitude")
+        lng_val = geo.get("longitude")
+        if lat_val is not None:
+            try:
+                data["lat"] = float(lat_val)
+            except (TypeError, ValueError):
+                pass
+        if lng_val is not None:
+            try:
+                data["lng"] = float(lng_val)
+            except (TypeError, ValueError):
+                pass
+
+        # Imagens — lista de URLs (podem ser relativas ou absolutas)
+        imgs_ld = apartment_ld.get("image") or []
+        urls_imgs = []
+        seen: set = set()
+        for img_url in imgs_ld[:10]:
+            if not img_url:
+                continue
+            img_url = _qa_abs_img(str(img_url))
+            if img_url not in seen:
+                seen.add(img_url)
+                urls_imgs.append(img_url)
+
+        if urls_imgs:
+            data["imagem_url"] = urls_imgs[0]
+            data["imagens_json"] = json.dumps(urls_imgs, ensure_ascii=False)
+
+    else:
+        logger.warning("QuintoAndar: JSON-LD Apartment não encontrado em %s — usando meta tags", url)
+
+    # ── 2. Complementa / fallback com meta tags ───────────────────────────────
+    # Coleta todas as meta tags de uma vez
+    metas: dict = {}
+    for tag in soup.find_all("meta"):
+        key = tag.get("property") or tag.get("name") or tag.get("itemprop") or ""
+        val = tag.get("content") or ""
+        if key and val:
+            metas[key] = val
+
+    # Título: usa og:title apenas se ainda não temos (JSON-LD é mais limpo)
+    if not data.get("titulo"):
+        raw_title = metas.get("og:title") or metas.get("twitter:title") or ""
+        # Remove sufixo " - QuintoAndar" e artefatos de encoding
+        raw_title = re.sub(r"\s*-\s*QuintoAndar\s*$", "", raw_title).strip()
+        # Corrige o artefato de &nbsp; que aparece como sequência UUID no <title>
+        raw_title = re.sub(
+            r"R[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}nbsp;",
+            "R$ ",
+            raw_title,
+        )
+        if raw_title:
+            data["titulo"] = raw_title
+
+    # Imagem: og:image como fallback (pode ser relativa)
+    if not data.get("imagem_url"):
+        og_img = (metas.get("og:image") or metas.get("twitter:image")
+                  or metas.get("image") or metas.get("itemprop:image"))
+        if og_img:
+            data["imagem_url"] = _qa_abs_img(og_img)
+
+    # Preço, área, quartos via description (último recurso)
+    desc = metas.get("og:description") or metas.get("description") or ""
+    if desc:
+        if not data.get("preco"):
+            preco_m = re.search(r"R\$\s*([\d.,]+)", desc)
+            if preco_m:
+                data["preco"] = _parse_numero(preco_m.group(1))
+
+        if not data.get("area_m2"):
+            area_m = re.search(r"(\d+)\s*m²", desc)
+            if area_m:
+                data["area_m2"] = float(area_m.group(1))
+
+        if not data.get("quartos"):
+            quartos_m = re.search(r"(\d+)\s*quarto", desc, re.IGNORECASE)
+            if quartos_m:
+                data["quartos"] = int(quartos_m.group(1))
+
+        if not data.get("banheiros"):
+            bath_m = re.search(r"(\d+)\s*banheiro", desc, re.IGNORECASE)
+            if bath_m:
+                data["banheiros"] = int(bath_m.group(1))
+
+        if not data.get("vagas"):
+            vagas_m = re.search(r"(\d+)\s*vaga", desc, re.IGNORECASE)
+            if vagas_m:
+                data["vagas"] = int(vagas_m.group(1))
+
+    return {k: v for k, v in data.items() if v is not None}

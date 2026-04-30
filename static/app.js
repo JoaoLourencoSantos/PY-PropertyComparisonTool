@@ -114,8 +114,11 @@ function parseImagens(im) {
 
 function proxyImg(url) {
   if (!url) return url;
-  // Passa pelo proxy Flask para evitar bloqueio de hotlink (ZAP e VivaReal)
-  if (url.includes("resizedimgs.zapimoveis.com.br") || url.includes("resizedimgs.vivareal.com")) {
+  if (
+    url.includes("resizedimgs.zapimoveis.com.br") ||
+    url.includes("resizedimgs.vivareal.com") ||
+    url.includes("quintoandar.com.br/img/")
+  ) {
     return `/img-proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
@@ -251,9 +254,29 @@ function renderLista() {
   }
 }
 
+function disponivelBadge(disponivel) {
+  // disponivel: 1 = ativo, 0 = indisponível, null = desconhecido
+  if (disponivel === 0) return `<span class="disponivel-badge disponivel-nao">🔴 Indisponível</span>`;
+  if (disponivel === 1) return `<span class="disponivel-badge disponivel-sim">🟢 Ativo</span>`;
+  return "";
+}
+
+const ORIGEM_ICON = {
+  "ZAP Imóveis":  { icon: "🏢", cls: "origem-zap" },
+  "VivaReal":     { icon: "🔵", cls: "origem-vivareal" },
+  "QuintoAndar":  { icon: "🟠", cls: "origem-quintoandar" },
+  "OLX":          { icon: "🟣", cls: "origem-olx" },
+};
+
+function origemBadge(origem) {
+  if (!origem) return "";
+  const meta = ORIGEM_ICON[origem] || { icon: "🌐", cls: "origem-outro" };
+  return `<span class="origem-badge ${meta.cls}">${meta.icon} ${origem}</span>`;
+}
+
 function criarCard(im, rank) {
   const card  = document.createElement("div");
-  card.className = "imovel-card";
+  card.className = "imovel-card" + (im.disponivel === 0 ? " indisponivel" : "");
   card.dataset.id = im.id;
 
   const score = im.score != null ? im.score.toFixed(1) : null;
@@ -265,7 +288,11 @@ function criarCard(im, rank) {
 
     <div class="imovel-body">
       <div class="imovel-titulo">${im.titulo || "Imóvel sem título"}</div>
-      <div class="imovel-preco">${fmt_preco(im.preco)}</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="imovel-preco">${fmt_preco(im.preco)}</div>
+        ${disponivelBadge(im.disponivel)}
+        ${origemBadge(im.origem)}
+      </div>
 
       <div class="imovel-stats">
         ${im.area_m2   ? `<span class="stat-pill">📐 ${fmt_num(im.area_m2)} m²</span>` : ""}
@@ -395,6 +422,8 @@ async function abrirDetalhe(id) {
             <div class="detalhe-item"><div class="di-label">Banheiros</div><div class="di-val">${im.banheiros ?? "—"}</div></div>
             <div class="detalhe-item"><div class="di-label">Vagas</div><div class="di-val">${im.vagas ?? "—"}</div></div>
             <div class="detalhe-item"><div class="di-label">Status</div><div class="di-val"><span class="status-badge status-${im.status}">${im.status}</span></div></div>
+            <div class="detalhe-item"><div class="di-label">Disponível</div><div class="di-val">${disponivelBadge(im.disponivel) || "—"}</div></div>
+            <div class="detalhe-item"><div class="di-label">Origem</div><div class="di-val">${origemBadge(im.origem) || "—"}</div></div>
           </div>
         </div>
 

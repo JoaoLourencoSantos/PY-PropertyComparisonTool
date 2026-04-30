@@ -44,15 +44,17 @@ def img_proxy():
     allowed = (
         "https://resizedimgs.zapimoveis.com.br",
         "https://resizedimgs.vivareal.com",
+        "https://www.quintoandar.com.br/img/",
     )
     if not url or not any(url.startswith(a) for a in allowed):
         abort(400)
 
-    referer = (
-        "https://www.vivareal.com.br/"
-        if "vivareal.com" in url
-        else "https://www.zapimoveis.com.br/"
-    )
+    if "vivareal.com" in url:
+        referer = "https://www.vivareal.com.br/"
+    elif "quintoandar" in url:
+        referer = "https://www.quintoandar.com.br/"
+    else:
+        referer = "https://www.zapimoveis.com.br/"
 
     try:
         resp = requests.get(
@@ -121,6 +123,7 @@ def adicionar_imovel():
     # Salva imediatamente com status pendente
     dados_iniciais = {
         "url": url,
+        "origem": None,
         "titulo": None, "preco": None, "area_m2": None, "quartos": None,
         "banheiros": None, "vagas": None, "endereco": None, "bairro": None,
         "cidade": "Belo Horizonte", "lat": None, "lng": None,
@@ -200,6 +203,19 @@ def _processar_imovel(imovel_id: int, url: str):
     Faz scraping + geocodificação + distâncias + score.
     Roda em thread separada para não bloquear a requisição.
     """
+    # Chaves obrigatórias para o upsert — garante que nenhuma falta
+    _REQUIRED = {
+        "url": url, "origem": None, "titulo": None, "preco": None,
+        "area_m2": None, "quartos": None, "banheiros": None, "vagas": None,
+        "endereco": None, "bairro": None, "cidade": "Belo Horizonte",
+        "lat": None, "lng": None,
+        "dist_supermercado_km": None, "dist_centro_carro_km": None,
+        "dist_centro_onibus_km": None, "tempo_centro_carro_min": None,
+        "tempo_centro_onibus_min": None, "linhas_onibus": None,
+        "imagem_url": None, "imagens_json": None,
+        "score": None, "status": "processando",
+    }
+
     try:
         logger.info("Processando imóvel %d: %s", imovel_id, url)
 
@@ -209,6 +225,10 @@ def _processar_imovel(imovel_id: int, url: str):
             _marcar_erro(imovel_id, url, dados["erro"])
             return
 
+        # Garante todas as chaves necessárias
+        base = dict(_REQUIRED)
+        base.update(dados)
+        dados = base
         dados["id"] = imovel_id
 
         # 2. Geocodificação (se não veio do scraper)
@@ -240,14 +260,16 @@ def _processar_imovel(imovel_id: int, url: str):
 
 def _marcar_erro(imovel_id: int, url: str, mensagem: str):
     dados = {
-        "url": url,
+        "id": imovel_id,
+        "url": url, "origem": None,
         "titulo": f"Erro: {mensagem[:80]}",
         "preco": None, "area_m2": None, "quartos": None, "banheiros": None,
         "vagas": None, "endereco": None, "bairro": None, "cidade": None,
         "lat": None, "lng": None,
         "dist_supermercado_km": None, "dist_centro_carro_km": None,
         "dist_centro_onibus_km": None, "tempo_centro_carro_min": None,
-        "tempo_centro_onibus_min": None, "imagem_url": None,
+        "tempo_centro_onibus_min": None, "linhas_onibus": None,
+        "imagem_url": None, "imagens_json": None,
         "score": None, "status": "erro",
     }
     upsert_imovel(dados)

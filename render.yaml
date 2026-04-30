@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: comparador-imoveis-bh
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # troque para "standard" se precisar de mais recursos
+    region: ohio           # ou "frankfurt" se preferir latência menor para BR
+
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+    healthCheckPath: /

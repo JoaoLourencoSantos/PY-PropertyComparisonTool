@@ -39,7 +39,7 @@ def _overpass_post(query: str) -> dict:
     """Tenta os mirrors do Overpass em ordem até um responder."""
     for url in OVERPASS_MIRRORS:
         try:
-            resp = requests.post(url, data={"data": query}, headers=HEADERS, timeout=25)
+            resp = requests.post(url, data={"data": query}, headers=HEADERS, timeout=20)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
@@ -202,7 +202,7 @@ def buscar_linhas_onibus(lat: float, lng: float, raio_m: int = 1000) -> dict:
 
     # Busca relações com geometria completa
     q = f"""
-    [out:json][timeout:25];
+    [out:json][timeout:20];
     relation["type"="route"]["route"="bus"](around:{raio_m},{lat},{lng});
     out geom;
     """
@@ -287,7 +287,10 @@ def calcular_distancias(lat: float, lng: float) -> dict:
     """
     Calcula todas as distâncias para um imóvel.
     Sempre retorna valores (usa Haversine se APIs externas falharem).
+    Cada etapa tem timeout independente para não travar o processamento.
     """
+    import concurrent.futures
+
     result = {
         "dist_supermercado_km":    None,
         "dist_centro_carro_km":    None,
@@ -300,24 +303,41 @@ def calcular_distancias(lat: float, lng: float) -> dict:
     if not lat or not lng:
         return result
 
-    # Distâncias ao centro de BH
-    dist_km, t_carro, t_onibus = _rota_com_fallback(
-        lat, lng, CENTRO_BH_LAT, CENTRO_BH_LNG
-    )
-    result["dist_centro_carro_km"]    = dist_km
-    result["dist_centro_onibus_km"]   = dist_km
-    result["tempo_centro_carro_min"]  = t_carro
-    result["tempo_centro_onibus_min"] = t_onibus
+    # ── 1. Distâncias ao centro (OSRM ou Haversine) — rápido ─────────────────
+    try:
+        dist_km, t_carro, t_onibus = _rota_com_fallback(
+            lat, lng, CENTRO_BH_LAT, CENTRO_BH_LNG
+        )
+        result["dist_centro_carro_km"]    = dist_km
+        result["dist_centro_onibus_km"]   = dist_km
+        result["tempo_centro_carro_min"]  = t_carro
+        result["tempo_centro_onibus_min"] = t_onibus
+    except Exception as e:
+        logger.warning("Erro ao calcular distância ao centro: %s — usando Haversine", e)
+        dist_km, t_carro, t_onibus = _estimar_distancias(lat, lng, CENTRO_BH_LAT, CENTRO_BH_LNG)
+        result["dist_centro_carro_km"]    = dist_km
+        result["dist_centro_onibus_km"]   = dist_km
+        result["tempo_centro_carro_min"]  = t_carro
+        result["tempo_centro_onibus_min"] = t_onibus
 
-    time.sleep(0.3)
+    # ── 2. Supermercado e linhas de ônibus em paralelo, com timeout ───────────
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        fut_super  = executor.submit(_nearest_supermarket_km, lat, lng)
+        fut_linhas = executor.submit(buscar_linhas_onibus, lat, lng)
 
-    # Supermercado mais próximo
-    result["dist_supermercado_km"] = _nearest_supermarket_km(lat, lng)
+        try:
+            result["dist_supermercado_km"] = fut_super.result(timeout=35)
+        except concurrent.futures.TimeoutError:
+            logger.warning("Timeout ao buscar supermercado — ignorando")
+        except Exception as e:
+            logger.warning("Erro ao buscar supermercado: %s", e)
 
-    time.sleep(0.3)
-
-    # Linhas de ônibus próximas
-    linhas = buscar_linhas_onibus(lat, lng)
-    result["linhas_onibus"] = json.dumps(linhas, ensure_ascii=False) if linhas else None
+        try:
+            linhas = fut_linhas.result(timeout=35)
+            result["linhas_onibus"] = json.dumps(linhas, ensure_ascii=False) if linhas else None
+        except concurrent.futures.TimeoutError:
+            logger.warning("Timeout ao buscar linhas de ônibus — ignorando")
+        except Exception as e:
+            logger.warning("Erro ao buscar linhas de ônibus: %s", e)
 
     return result

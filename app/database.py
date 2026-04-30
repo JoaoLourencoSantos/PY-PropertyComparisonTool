@@ -18,6 +18,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS imoveis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT UNIQUE NOT NULL,
+            origem TEXT,
             titulo TEXT,
             preco REAL,
             area_m2 REAL,
@@ -60,12 +61,26 @@ def init_db():
     """)
 
     # Migração: adiciona colunas se banco já existia sem elas
-    for col in ["imagens_json TEXT", "linhas_onibus TEXT", "disponivel INTEGER DEFAULT 1", "checado_em TIMESTAMP"]:
+    for col in ["imagens_json TEXT", "linhas_onibus TEXT", "disponivel INTEGER DEFAULT 1",
+                "checado_em TIMESTAMP", "origem TEXT"]:
         try:
             cur.execute(f"ALTER TABLE imoveis ADD COLUMN {col}")
             conn.commit()
         except Exception:
             pass  # coluna já existe
+
+    # Migração: preenche origem para imóveis já existentes com base na URL
+    cur.execute("""
+        UPDATE imoveis SET origem = CASE
+            WHEN url LIKE '%zapimoveis%'   THEN 'ZAP Imóveis'
+            WHEN url LIKE '%vivareal%'     THEN 'VivaReal'
+            WHEN url LIKE '%quintoandar%'  THEN 'QuintoAndar'
+            WHEN url LIKE '%olx%'          THEN 'OLX'
+            ELSE 'Outro'
+        END
+        WHERE origem IS NULL
+    """)
+    conn.commit()
 
     conn.commit()
     conn.close()
@@ -91,17 +106,18 @@ def upsert_imovel(data: dict):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO imoveis (url, titulo, preco, area_m2, quartos, banheiros, vagas,
+        INSERT INTO imoveis (url, origem, titulo, preco, area_m2, quartos, banheiros, vagas,
             endereco, bairro, cidade, lat, lng,
             dist_supermercado_km, dist_centro_carro_km, dist_centro_onibus_km,
             tempo_centro_carro_min, tempo_centro_onibus_min,
             imagem_url, imagens_json, linhas_onibus, score, status)
-        VALUES (:url, :titulo, :preco, :area_m2, :quartos, :banheiros, :vagas,
+        VALUES (:url, :origem, :titulo, :preco, :area_m2, :quartos, :banheiros, :vagas,
             :endereco, :bairro, :cidade, :lat, :lng,
             :dist_supermercado_km, :dist_centro_carro_km, :dist_centro_onibus_km,
             :tempo_centro_carro_min, :tempo_centro_onibus_min,
             :imagem_url, :imagens_json, :linhas_onibus, :score, :status)
         ON CONFLICT(url) DO UPDATE SET
+            origem = excluded.origem,
             titulo = excluded.titulo,
             preco = excluded.preco,
             area_m2 = excluded.area_m2,
