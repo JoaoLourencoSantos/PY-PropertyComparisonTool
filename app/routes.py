@@ -23,6 +23,10 @@ from app.ranking import calcular_score_todos, score_badge
 logger = logging.getLogger(__name__)
 bp = Blueprint("main", __name__)
 
+# Limita scraping simultâneo — cada Chromium usa ~150MB, starter tem 512MB
+# 2 threads = ~300MB de Chromium + ~100MB Flask/Python = seguro
+_scraping_semaphore = threading.Semaphore(2)
+
 
 # ─── Página principal ────────────────────────────────────────────────────────
 
@@ -85,10 +89,14 @@ def img_proxy():
 def listar_imoveis():
     imoveis = get_all_imoveis()
 
-    # Dispara processamento de qualquer imóvel ainda pendente (ex: importados via seed)
+    # Conta quantas threads de scraping estão rodando agora
+    slots_livres = _scraping_semaphore._value
+
+    # Lança no máximo `slots_livres` pendentes por chamada
     pendentes = [im for im in imoveis if im["status"] == "pendente"]
-    for im in pendentes:
-        # Marca como processando antes de lançar a thread
+    para_lancar = pendentes[:slots_livres] if slots_livres > 0 else []
+
+    for im in para_lancar:
         im["status"] = "processando"
         upsert_imovel(im)
         thread = threading.Thread(
@@ -96,7 +104,7 @@ def listar_imoveis():
         )
         thread.start()
 
-    if pendentes:
+    if para_lancar:
         imoveis = get_all_imoveis()
 
     for im in imoveis:
@@ -248,14 +256,15 @@ _TIMEOUT_PROCESSAMENTO = 240
 def _processar_imovel(imovel_id: int, url: str):
     """
     Faz scraping + geocodificação + distâncias + score.
-    Roda em thread separada para não bloquear a requisição.
-    Usa um executor interno com timeout para garantir que o status
-    nunca fique preso em 'processando' indefinidamente.
+    Usa semáforo para limitar Chromium simultâneos e evitar OOM.
     """
     import concurrent.futures as cf
 
     def _executar():
-        _processar_imovel_interno(imovel_id, url)
+        with _scraping_semaphore:
+            logger.info("[%d] Semáforo adquirido (slots restantes: %d)",
+                        imovel_id, _scraping_semaphore._value)
+            _processar_imovel_interno(imovel_id, url)
 
     try:
         with cf.ThreadPoolExecutor(max_workers=1) as ex:
