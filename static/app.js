@@ -487,7 +487,6 @@ async function salvarPesos() {
 async function importarTxt(file) {
   const text = await file.text();
 
-  // Extrai URLs válidas — uma por linha, ignora linhas vazias e comentários (#)
   const urls = text.split("\n")
     .map(l => l.trim())
     .filter(l => l && !l.startsWith("#") && l.startsWith("http"));
@@ -508,8 +507,8 @@ async function importarTxt(file) {
   log.innerHTML = "";
   bar.style.width = "0%";
   btnFechar.disabled = true;
-  desc.textContent = `Enviando ${urls.length} link${urls.length > 1 ? "s" : ""} para a fila...`;
-  status.textContent = "0 / 0";
+  desc.textContent = `Processando ${urls.length} link${urls.length > 1 ? "s" : ""} (1 por vez)...`;
+  status.textContent = "0 / " + urls.length;
   pct.textContent = "0%";
   modal.showModal();
 
@@ -523,43 +522,67 @@ async function importarTxt(file) {
     log.scrollTop = log.scrollHeight;
   }
 
-  try {
-    // Envia todas as URLs de uma vez — backend salva como 'pendente' sem lançar threads
-    const res  = await fetch(`${API}/api/imoveis/importar-lote`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls }),
-    });
-    const data = await res.json();
+  // Envia para o backend e consome SSE
+  const res = await fetch(`${API}/api/imoveis/importar-lote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ urls }),
+  });
 
-    if (!res.ok) {
-      addLog(`❌ Erro: ${data.erro || res.status}`, "erro");
-      desc.textContent = "Erro ao importar.";
-      btnFechar.disabled = false;
-      return;
+  if (!res.ok) {
+    addLog("❌ Erro ao iniciar importação.", "erro");
+    btnFechar.disabled = false;
+    return;
+  }
+
+  const reader  = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop(); // guarda linha incompleta
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const ev = JSON.parse(line.slice(6));
+
+        if (ev.tipo === "progresso") {
+          const p = Math.round((ev.idx / ev.total) * 100);
+          bar.style.width = p + "%";
+          pct.textContent = p + "%";
+          status.textContent = `${ev.idx} / ${ev.total}`;
+          desc.textContent = `Processando ${ev.idx}/${ev.total}...`;
+        }
+
+        if (ev.tipo === "resultado") {
+          const p = Math.round((ev.idx / ev.total) * 100);
+          bar.style.width = p + "%";
+          pct.textContent = p + "%";
+          status.textContent = `${ev.idx} / ${ev.total}`;
+          const urlCurta = ev.url.slice(0, 65) + (ev.url.length > 65 ? "…" : "");
+          if (ev.status === "ok" || ev.status === "sem_coordenadas")
+            addLog(`✅ #${ev.id} ${urlCurta}`, "ok");
+          else if (ev.status === "erro")
+            addLog(`❌ ${urlCurta}${ev.motivo ? " — " + ev.motivo : ""}`, "erro");
+          else
+            addLog(`⏭ ${urlCurta} — ${ev.status}`, "skip");
+        }
+
+        if (ev.tipo === "fim") {
+          bar.style.width = "100%";
+          pct.textContent = "100%";
+          desc.textContent = `Concluído — ${ev.total} link${ev.total !== 1 ? "s" : ""} processados.`;
+          btnFechar.disabled = false;
+          await carregarImoveis();
+        }
+      } catch(e) { /* linha malformada, ignora */ }
     }
-
-    // Mostra resultado por URL
-    (data.resultados || []).forEach(r => {
-      if (r.status === "pendente")
-        addLog(`✅ Na fila #${r.id}: ${r.url.slice(0, 70)}`, "ok");
-      else if (r.status === "ignorado")
-        addLog(`⏭ Ignorado: ${r.url.slice(0, 70)} — ${r.motivo}`, "skip");
-      else
-        addLog(`❌ Erro: ${r.url.slice(0, 70)} — ${r.motivo}`, "erro");
-    });
-
-    const total = data.resultados?.length || 0;
-    bar.style.width = "100%";
-    status.textContent = `${total} / ${total}`;
-    pct.textContent = "100%";
-    desc.textContent = `${data.adicionados} link${data.adicionados !== 1 ? "s" : ""} adicionados à fila. O processamento acontece automaticamente.`;
-
-    await carregarImoveis();
-
-  } catch(e) {
-    addLog(`❌ Falha de conexão: ${e.message}`, "erro");
-    desc.textContent = "Erro de conexão.";
   }
 
   btnFechar.disabled = false;

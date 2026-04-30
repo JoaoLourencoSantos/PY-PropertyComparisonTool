@@ -158,40 +158,69 @@ def adicionar_imovel():
 @bp.route("/api/imoveis/importar-lote", methods=["POST"])
 def importar_lote():
     """
-    Recebe uma lista de URLs e salva todas como 'pendente' sem lançar threads.
-    O processamento acontece gradualmente quando GET /api/imoveis é chamado.
-    Ideal para importação em massa sem sobrecarregar o servidor.
+    Importação síncrona via Server-Sent Events.
+    Processa uma URL por vez — sem threads paralelas, sem OOM.
+    O cliente recebe eventos de progresso em tempo real.
     """
     body = request.get_json(force=True)
-    urls = body.get("urls") or []
-    if not urls:
+    urls_raw = body.get("urls") or []
+    if not urls_raw:
         return jsonify({"erro": "Lista de URLs vazia"}), 400
 
-    resultados = []
-    for url in urls:
-        url = (url or "").strip().split("?")[0].rstrip("/")
-        if not url or not url.startswith("http"):
-            resultados.append({"url": url, "status": "ignorado", "motivo": "URL inválida"})
-            continue
-        try:
-            dados = {
-                "url": url, "origem": None, "titulo": None, "preco": None,
-                "area_m2": None, "quartos": None, "banheiros": None, "vagas": None,
-                "endereco": None, "bairro": None, "cidade": "Belo Horizonte",
-                "lat": None, "lng": None,
-                "dist_supermercado_km": None, "dist_centro_carro_km": None,
-                "dist_centro_onibus_km": None, "tempo_centro_carro_min": None,
-                "tempo_centro_onibus_min": None, "linhas_onibus": None,
-                "imagem_url": None, "imagens_json": None,
-                "score": None, "status": "pendente",
-            }
-            imovel_id = upsert_imovel(dados)
-            resultados.append({"url": url, "id": imovel_id, "status": "pendente"})
-        except Exception as e:
-            resultados.append({"url": url, "status": "erro", "motivo": str(e)})
+    # Limpa URLs
+    urls = []
+    for u in urls_raw:
+        u = (u or "").strip().split("?")[0].rstrip("/")
+        if u and u.startswith("http"):
+            urls.append(u)
 
-    adicionados = sum(1 for r in resultados if r["status"] == "pendente")
-    return jsonify({"adicionados": adicionados, "resultados": resultados}), 202
+    def gerar_eventos():
+        total = len(urls)
+        yield f"data: {json.dumps({'tipo': 'inicio', 'total': total})}\n\n"
+
+        for i, url in enumerate(urls):
+            yield f"data: {json.dumps({'tipo': 'progresso', 'idx': i+1, 'total': total, 'url': url})}\n\n"
+
+            try:
+                # Salva como processando
+                dados_iniciais = {
+                    "url": url, "origem": None, "titulo": None, "preco": None,
+                    "area_m2": None, "quartos": None, "banheiros": None, "vagas": None,
+                    "endereco": None, "bairro": None, "cidade": "Belo Horizonte",
+                    "lat": None, "lng": None,
+                    "dist_supermercado_km": None, "dist_centro_carro_km": None,
+                    "dist_centro_onibus_km": None, "tempo_centro_carro_min": None,
+                    "tempo_centro_onibus_min": None, "linhas_onibus": None,
+                    "imagem_url": None, "imagens_json": None,
+                    "score": None, "status": "processando",
+                }
+                imovel_id = upsert_imovel(dados_iniciais)
+
+                # Processa de forma síncrona (sem thread)
+                _processar_imovel_interno(imovel_id, url)
+
+                # Verifica resultado
+                im = get_imovel(imovel_id)
+                status = im["status"] if im else "erro"
+                yield f"data: {json.dumps({'tipo': 'resultado', 'idx': i+1, 'total': total, 'url': url, 'id': imovel_id, 'status': status})}\n\n"
+
+            except Exception as e:
+                logger.exception("Erro ao importar %s: %s", url, e)
+                yield f"data: {json.dumps({'tipo': 'resultado', 'idx': i+1, 'total': total, 'url': url, 'status': 'erro', 'motivo': str(e)[:100]})}\n\n"
+
+        # Recalcula scores ao final
+        try:
+            calcular_score_todos()
+        except Exception:
+            pass
+
+        yield f"data: {json.dumps({'tipo': 'fim', 'total': total})}\n\n"
+
+    import json as json_mod
+    # Precisamos do json no escopo do generator
+    import json
+    return Response(gerar_eventos(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @bp.route("/api/imoveis/<int:imovel_id>", methods=["DELETE"])
