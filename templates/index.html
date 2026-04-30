@@ -1,55 +1,69 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="light">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>Comparador de Imóveis — BH</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
-<body>
-  <header>
-    <div class="header-inner">
-      <div class="logo">
-        <span class="logo-icon">🏠</span>
-        <div>
-          <h1>Comparador de Imóveis</h1>
-          <p>Belo Horizonte · Ranking inteligente</p>
-        </div>
+<body class="bg-base-200 min-h-screen">
+
+  <!-- Header -->
+  <header class="navbar bg-base-100 shadow-sm sticky top-0 z-50 border-b border-base-300">
+    <div class="navbar-start">
+      <span class="text-2xl mr-2">🏠</span>
+      <div>
+        <div class="font-bold text-base leading-tight">Comparador de Imóveis</div>
+        <div class="text-xs text-base-content/50 hidden sm:block">Belo Horizonte · Ranking inteligente</div>
       </div>
-      <button class="btn btn-outline" id="btnPesos">⚙️ Ajustar Pesos</button>
+    </div>
+    <div class="navbar-end gap-2">
+      <!-- Toggle dark mode -->
+      <label class="swap swap-rotate btn btn-ghost btn-circle btn-sm" title="Alternar tema">
+        <input type="checkbox" id="themeToggle" />
+        <svg class="swap-off w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7,5,6.36a1,1,0,0,0-1.41,1.41L4.22,8.46A1,1,0,0,0,5.64,7Zm12,.71a1,1,0,0,0,.7-.29l.71-.71a1,1,0,0,0-1.41-1.41L17,6.36a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.66ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>
+        <svg class="swap-on w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"/></svg>
+      </label>
+      <button class="btn btn-outline btn-sm btn-primary" id="btnPesos">⚙️ Pesos</button>
     </div>
   </header>
 
-  <main>
-    <!-- Adicionar imóvel -->
-    <section class="card add-card">
-      <h2>Adicionar imóvel</h2>
-      <p class="hint">Cole o link de um imóvel (ZAP Imóveis, VivaReal, OLX ou qualquer site)</p>
-      <div class="add-form">
-        <input
-          type="url"
-          id="inputUrl"
-          placeholder="https://www.zapimoveis.com.br/imovel/..."
-          autocomplete="off"
-        />
-        <button class="btn btn-primary" id="btnAdicionar">Adicionar</button>
-      </div>
-      <div id="addMsg" class="msg hidden"></div>
-    </section>
+  <main class="max-w-6xl mx-auto px-3 sm:px-6 py-6 flex flex-col gap-6">
 
-    <!-- Lista de imóveis -->
-    <section id="listaSection">
-      <div class="lista-header">
-        <h2>Imóveis comparados <span id="totalCount" class="badge-count"></span></h2>
-        <div class="filtros">
-          <select id="filtroStatus">
+    <!-- Adicionar imóvel -->
+    <div class="card bg-base-100 shadow-sm border border-base-300">
+      <div class="card-body p-4 sm:p-6">
+        <h2 class="card-title text-base">Adicionar imóvel</h2>
+        <p class="text-sm text-base-content/60 -mt-1">Cole o link de um imóvel (ZAP Imóveis, VivaReal, QuintoAndar, OLX)</p>
+        <div class="flex flex-col sm:flex-row gap-2 mt-1">
+          <input type="url" id="inputUrl"
+            placeholder="https://www.zapimoveis.com.br/imovel/..."
+            class="input input-bordered flex-1 text-sm" autocomplete="off" />
+          <button class="btn btn-primary" id="btnAdicionar">Adicionar</button>
+        </div>
+        <div id="addMsg" class="hidden"></div>
+      </div>
+    </div>
+
+    <!-- Lista -->
+    <section>
+      <!-- Header da lista -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <h2 class="font-bold text-lg">
+          Imóveis comparados
+          <span id="totalCount" class="badge badge-primary badge-sm ml-1"></span>
+        </h2>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <select id="filtroStatus" class="select select-bordered select-sm w-full sm:w-auto">
             <option value="">Todos os status</option>
-            <option value="ok">Processados</option>
-            <option value="processando">Processando</option>
-            <option value="erro">Com erro</option>
-            <option value="sem_coordenadas">Sem localização</option>
+            <option value="ok">✅ Processados</option>
+            <option value="processando">⏳ Processando</option>
+            <option value="erro">❌ Com erro</option>
+            <option value="sem_coordenadas">📍 Sem localização</option>
           </select>
-          <select id="filtroOrigem">
+          <select id="filtroOrigem" class="select select-bordered select-sm w-full sm:w-auto">
             <option value="">Todas as origens</option>
             <option value="ZAP Imóveis">🏢 ZAP Imóveis</option>
             <option value="VivaReal">🔵 VivaReal</option>
@@ -57,58 +71,75 @@
             <option value="OLX">🟣 OLX</option>
             <option value="Outro">🌐 Outro</option>
           </select>
-          <select id="filtroBairro">
+          <select id="filtroBairro" class="select select-bordered select-sm w-full sm:w-auto">
             <option value="">Todos os bairros</option>
           </select>
-          <button class="btn btn-sm btn-outline" id="btnAtualizar">🔄 Atualizar</button>
+          <button class="btn btn-outline btn-sm" id="btnAtualizar">🔄 Atualizar</button>
         </div>
       </div>
 
-      <div id="loadingLista" class="loading-state hidden">
-        <div class="spinner"></div>
+      <!-- Loading -->
+      <div id="loadingLista" class="hidden flex flex-col items-center justify-center py-20 text-base-content/50">
+        <span class="loading loading-spinner loading-lg mb-3"></span>
         <p>Carregando imóveis...</p>
       </div>
 
-      <div id="emptyState" class="empty-state hidden">
-        <span class="empty-icon">🏘️</span>
-        <p>Nenhum imóvel adicionado ainda.</p>
-        <p class="hint">Cole um link acima para começar a comparar.</p>
+      <!-- Empty -->
+      <div id="emptyState" class="hidden flex flex-col items-center justify-center py-20 text-base-content/40">
+        <span class="text-5xl mb-3">🏘️</span>
+        <p class="font-medium">Nenhum imóvel adicionado ainda.</p>
+        <p class="text-sm mt-1">Cole um link acima para começar a comparar.</p>
       </div>
 
-      <div id="listaImoveis" class="lista-grid"></div>
+      <!-- Grid -->
+      <div id="listaImoveis" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
     </section>
   </main>
 
   <!-- Modal: Pesos -->
-  <div id="modalPesos" class="modal-overlay hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <h3>⚙️ Ajustar Pesos do Ranking</h3>
-        <button class="modal-close" id="btnFecharPesos">✕</button>
+  <dialog id="modalPesos" class="modal modal-bottom sm:modal-middle">
+    <div class="modal-box w-full max-w-lg">
+      <div class="modal-handle sm:hidden"></div>
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="font-bold text-lg">⚙️ Ajustar Pesos do Ranking</h3>
+        <button class="btn btn-ghost btn-sm btn-circle" id="btnFecharPesos">✕</button>
       </div>
-      <p class="hint">Defina a importância de cada critério (0–100). O total não precisa somar 100.</p>
-      <div class="pesos-grid" id="pesosForm">
-        <!-- Gerado via JS -->
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-outline" id="btnCancelarPesos">Cancelar</button>
+      <p class="text-sm text-base-content/60 mb-4">Defina a importância de cada critério (0–100).</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="pesosForm"></div>
+      <div id="pesosMsg" class="hidden mt-3"></div>
+      <div class="modal-action mt-4">
+        <button class="btn btn-ghost" id="btnCancelarPesos">Cancelar</button>
         <button class="btn btn-primary" id="btnSalvarPesos">Salvar e Recalcular</button>
       </div>
-      <div id="pesosMsg" class="msg hidden"></div>
     </div>
-  </div>
+    <form method="dialog" class="modal-backdrop"><button id="btnFecharPesosBg">close</button></form>
+  </dialog>
 
   <!-- Modal: Detalhe -->
-  <div id="modalDetalhe" class="modal-overlay hidden">
-    <div class="modal modal-lg">
-      <div class="modal-header">
-        <h3 id="detalheTitle">Detalhes do Imóvel</h3>
-        <button class="modal-close" id="btnFecharDetalhe">✕</button>
+  <dialog id="modalDetalhe" class="modal modal-bottom sm:modal-middle">
+    <div class="modal-box w-full max-w-2xl max-h-[92vh]">
+      <div class="modal-handle sm:hidden"></div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-base pr-4 leading-snug" id="detalheTitle">Detalhes do Imóvel</h3>
+        <button class="btn btn-ghost btn-sm btn-circle shrink-0" id="btnFecharDetalhe">✕</button>
       </div>
       <div id="detalheContent"></div>
     </div>
-  </div>
+    <form method="dialog" class="modal-backdrop"><button id="btnFecharDetalheBg">close</button></form>
+  </dialog>
 
   <script src="/static/app.js"></script>
+  <script>
+    // Dark mode toggle
+    const toggle = document.getElementById("themeToggle");
+    const saved  = localStorage.getItem("theme") || "light";
+    document.documentElement.setAttribute("data-theme", saved);
+    toggle.checked = saved === "dark";
+    toggle.addEventListener("change", () => {
+      const t = toggle.checked ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", t);
+      localStorage.setItem("theme", t);
+    });
+  </script>
 </body>
 </html>

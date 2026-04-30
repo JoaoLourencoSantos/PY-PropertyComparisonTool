@@ -4,9 +4,9 @@ const API = "";
 let todosImoveis = [];
 let pollingTimer = null;
 
-// ── Utilitários ─────────────────────────────────────────────────────────────
+// ── Utilitários ──────────────────────────────────────────────────────────────
 
-const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $  = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
 function fmt_preco(v) {
@@ -34,17 +34,30 @@ function scoreColor(score) {
   if (score >= 35) return "regular";
   return "low";
 }
-function badgeClass(badge) {
-  if (!badge) return "badge-sem";
-  if (badge === "Excelente") return "badge-Excelente";
-  if (badge === "Bom") return "badge-Bom";
-  if (badge === "Regular") return "badge-Regular";
-  if (badge === "Abaixo da média") return "badge-abaixo";
-  return "badge-sem";
+function scoreBadgeClass(badge) {
+  if (!badge) return "badge-ghost";
+  if (badge === "Excelente")     return "badge-success";
+  if (badge === "Bom")           return "badge-info";
+  if (badge === "Regular")       return "badge-warning";
+  if (badge === "Abaixo da média") return "badge-error";
+  return "badge-ghost";
 }
+function statusBadgeClass(status) {
+  if (status === "ok")               return "badge-success";
+  if (status === "processando")      return "badge-warning";
+  if (status === "erro")             return "badge-error";
+  if (status === "sem_coordenadas")  return "badge-ghost";
+  return "badge-ghost";
+}
+function statusLabel(status) {
+  return { ok:"✅ Processado", processando:"⏳ Processando...", erro:"❌ Erro",
+           sem_coordenadas:"📍 Sem localização", pendente:"⏸ Pendente" }[status] || status;
+}
+
 function showMsg(el, text, type = "info") {
+  const cls = { success: "alert alert-success", error: "alert alert-error", info: "alert alert-info" };
+  el.className = (cls[type] || "alert") + " text-sm py-2 mt-2";
   el.textContent = text;
-  el.className = `msg ${type}`;
   el.classList.remove("hidden");
   setTimeout(() => el.classList.add("hidden"), 5000);
 }
@@ -55,54 +68,35 @@ function parseLinhas(im) {
     const d = JSON.parse(im.linhas_onibus);
     if (d && (d.diretas || d.baldeacao)) return d;
   } catch(e) {}
-  // Fallback: string legada
   return { diretas: [], baldeacao: im.linhas_onibus.split(", ") };
 }
 
 function renderLinhasCard(im) {
   const l = parseLinhas(im);
-  if (!l) return `<div class="dist-row" style="font-size:.75rem;color:#94a3b8">🚏 Linhas OSM: não mapeado</div>`;
+  if (!l) return `<div class="text-xs text-base-content/40">🚏 Linhas OSM: não mapeado</div>`;
   const parts = [];
-  if (l.diretas && l.diretas.length)
-    parts.push(`<span title="Direto ao centro">✅ ${l.diretas.join(", ")}</span>`);
-  if (l.baldeacao && l.baldeacao.length)
-    parts.push(`<span title="Provável baldeação">🔄 ${l.baldeacao.join(", ")}</span>`);
+  if (l.diretas?.length)   parts.push(`<span title="Direto ao centro" class="linha-direta text-xs font-bold px-2 py-0.5 rounded-full">✅ ${l.diretas.join(", ")}</span>`);
+  if (l.baldeacao?.length) parts.push(`<span title="Provável baldeação" class="linha-baldeacao text-xs font-bold px-2 py-0.5 rounded-full">🔄 ${l.baldeacao.join(", ")}</span>`);
   if (!parts.length) return "";
-  return `<div class="dist-row">🚏 <span class="linhas-pill">${parts.join(" &nbsp;")}</span></div>`;
+  return `<div class="flex items-center gap-1 flex-wrap">🚏 ${parts.join(" ")}</div>`;
 }
 
 function renderLinhasDetalhe(im) {
   const l = parseLinhas(im);
-  const nota = `<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px">
-    ⚠️ Baseado em dados do OpenStreetMap — cobertura parcial. Pode haver mais linhas.
-  </div>`;
+  const nota = `<p class="text-xs text-base-content/40 mt-1">⚠️ Dados do OpenStreetMap — cobertura parcial.</p>`;
+  if (!l) return `<div class="col-span-full bg-base-200 rounded-lg p-3">
+    <div class="text-xs text-base-content/50 font-semibold mb-1">🚏 Linhas de ônibus próximas</div>
+    <div class="text-sm text-base-content/40">Não encontrado no OpenStreetMap para esta área.</div>${nota}</div>`;
 
-  if (!l) {
-    return `<div class="detalhe-item" style="grid-column:1/-1">
-      <div class="di-label">🚏 Linhas de ônibus próximas</div>
-      <div style="font-size:.82rem;color:var(--text-muted);margin-top:4px">
-        Não encontrado no OpenStreetMap para esta área.
-      </div>
-      ${nota}
-    </div>`;
-  }
-
-  let html = `<div class="detalhe-item" style="grid-column:1/-1">
-    <div class="di-label">🚏 Linhas de ônibus próximas (~1km)</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">`;
-  (l.diretas || []).forEach(ref => {
-    html += `<span class="linha-tag linha-direta" title="Direto ao centro">✅ ${ref}</span>`;
-  });
-  (l.baldeacao || []).forEach(ref => {
-    html += `<span class="linha-tag linha-baldeacao" title="Provável baldeação">🔄 ${ref}</span>`;
-  });
-  html += `</div>
-    <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px">
-      ✅ direto ao centro &nbsp;·&nbsp; 🔄 provável baldeação
+  return `<div class="col-span-full bg-base-200 rounded-lg p-3">
+    <div class="text-xs text-base-content/50 font-semibold mb-2">🚏 Linhas de ônibus próximas (~1km)</div>
+    <div class="flex flex-wrap gap-1 mb-1">
+      ${(l.diretas||[]).map(r=>`<span class="linha-direta text-xs font-bold px-2 py-0.5 rounded-full" title="Direto ao centro">✅ ${r}</span>`).join("")}
+      ${(l.baldeacao||[]).map(r=>`<span class="linha-baldeacao text-xs font-bold px-2 py-0.5 rounded-full" title="Provável baldeação">🔄 ${r}</span>`).join("")}
     </div>
+    <p class="text-xs text-base-content/40">✅ direto ao centro · 🔄 provável baldeação</p>
     ${nota}
   </div>`;
-  return html;
 }
 
 function parseImagens(im) {
@@ -114,11 +108,9 @@ function parseImagens(im) {
 
 function proxyImg(url) {
   if (!url) return url;
-  if (
-    url.includes("resizedimgs.zapimoveis.com.br") ||
-    url.includes("resizedimgs.vivareal.com") ||
-    url.includes("quintoandar.com.br/img/")
-  ) {
+  if (url.includes("resizedimgs.zapimoveis.com.br") ||
+      url.includes("resizedimgs.vivareal.com") ||
+      url.includes("quintoandar.com.br/img/")) {
     return `/img-proxy?url=${encodeURIComponent(url)}`;
   }
   return url;
@@ -126,185 +118,145 @@ function proxyImg(url) {
 
 // ── Carrossel ────────────────────────────────────────────────────────────────
 
-function criarCarrossel(imgs, rank, altura = 180) {
+function criarCarrossel(imgs, rank, altura = 200) {
+  const h = `style="height:${altura}px"`;
   if (!imgs.length) {
-    return `
-      <div class="imovel-img-wrap" style="height:${altura}px">
-        <div class="imovel-img-placeholder">🏠</div>
-        ${rank != null ? `<span class="imovel-rank">#${rank}</span>` : ""}
-      </div>`;
+    return `<div class="carousel-custom bg-base-200 flex items-center justify-center" ${h}>
+      <span class="text-5xl text-base-content/20">🏠</span>
+      ${rank != null ? `<span class="imovel-rank">#${rank}</span>` : ""}
+    </div>`;
   }
-
   const id = "car_" + Math.random().toString(36).slice(2, 8);
   const slides = imgs.map((url, i) => `
-    <div class="carousel-slide ${i === 0 ? "active" : ""}">
-      <img src="${url}" alt="Foto ${i+1}"
-           onerror="this.parentElement.style.display='none'" />
+    <div class="carousel-slide ${i===0?"active":""}">
+      <img src="${url}" alt="Foto ${i+1}" onerror="this.parentElement.style.display='none'" />
     </div>`).join("");
-
   const dots = imgs.length > 1
-    ? `<div class="carousel-dots">
-        ${imgs.map((_, i) => `<span class="carousel-dot ${i===0?'active':''}" data-idx="${i}"></span>`).join("")}
-       </div>`
-    : "";
-
+    ? `<div class="carousel-dots">${imgs.map((_,i)=>`<span class="carousel-dot ${i===0?"active":""}" data-idx="${i}"></span>`).join("")}</div>` : "";
   const arrows = imgs.length > 1
     ? `<button class="carousel-btn carousel-prev" aria-label="Anterior">&#8249;</button>
-       <button class="carousel-btn carousel-next" aria-label="Próxima">&#8250;</button>`
-    : "";
-
+       <button class="carousel-btn carousel-next" aria-label="Próxima">&#8250;</button>` : "";
   return `
-    <div class="imovel-img-wrap carousel" id="${id}" style="height:${altura}px" data-idx="0" data-total="${imgs.length}">
+    <div class="carousel-custom img-wrap" id="${id}" ${h} data-idx="0" data-total="${imgs.length}">
       <div class="carousel-track">${slides}</div>
-      ${arrows}
-      ${dots}
+      ${arrows}${dots}
       ${rank != null ? `<span class="imovel-rank">#${rank}</span>` : ""}
     </div>`;
 }
 
 function initCarrossel(wrap) {
-  if (!wrap || !wrap.classList.contains("carousel")) return;
+  if (!wrap || !wrap.dataset.total) return;
   const total = Number(wrap.dataset.total);
   if (total <= 1) return;
-
   function goTo(idx) {
     const cur = Number(wrap.dataset.idx);
     const slides = wrap.querySelectorAll(".carousel-slide");
     const dots   = wrap.querySelectorAll(".carousel-dot");
-    slides[cur].classList.remove("active");
-    dots[cur] && dots[cur].classList.remove("active");
+    slides[cur].classList.remove("active"); dots[cur]?.classList.remove("active");
     wrap.dataset.idx = idx;
-    slides[idx].classList.add("active");
-    dots[idx] && dots[idx].classList.add("active");
+    slides[idx].classList.add("active");   dots[idx]?.classList.add("active");
   }
-
-  wrap.querySelector(".carousel-prev")?.addEventListener("click", e => {
-    e.stopPropagation();
-    const cur = Number(wrap.dataset.idx);
-    goTo((cur - 1 + total) % total);
-  });
-  wrap.querySelector(".carousel-next")?.addEventListener("click", e => {
-    e.stopPropagation();
-    goTo((Number(wrap.dataset.idx) + 1) % total);
-  });
+  wrap.querySelector(".carousel-prev")?.addEventListener("click", e => { e.stopPropagation(); goTo((Number(wrap.dataset.idx)-1+total)%total); });
+  wrap.querySelector(".carousel-next")?.addEventListener("click", e => { e.stopPropagation(); goTo((Number(wrap.dataset.idx)+1)%total); });
   wrap.querySelectorAll(".carousel-dot").forEach(dot => {
-    dot.addEventListener("click", e => {
-      e.stopPropagation();
-      goTo(Number(dot.dataset.idx));
-    });
+    dot.addEventListener("click", e => { e.stopPropagation(); goTo(Number(dot.dataset.idx)); });
   });
 }
 
-// ── Carregar imóveis ─────────────────────────────────────────────────────────
+// ── Badges ───────────────────────────────────────────────────────────────────
+
+const ORIGEM_META = {
+  "ZAP Imóveis": { icon:"🏢", cls:"badge-warning" },
+  "VivaReal":    { icon:"🔵", cls:"badge-info" },
+  "QuintoAndar": { icon:"🟠", cls:"badge-warning" },
+  "OLX":         { icon:"🟣", cls:"badge-secondary" },
+};
+
+function origemBadge(origem) {
+  if (!origem) return "";
+  const m = ORIGEM_META[origem] || { icon:"🌐", cls:"badge-ghost" };
+  return `<span class="badge ${m.cls} badge-sm gap-1">${m.icon} ${origem}</span>`;
+}
+function disponivelBadge(disponivel) {
+  if (disponivel === 0) return `<span class="badge badge-error badge-sm">🔴 Indisponível</span>`;
+  if (disponivel === 1) return `<span class="badge badge-success badge-sm">🟢 Ativo</span>`;
+  return "";
+}
+
+// ── Carregar imóveis ──────────────────────────────────────────────────────────
 
 async function carregarImoveis() {
-  const loading = $("#loadingLista");
-  const empty   = $("#emptyState");
-  const lista   = $("#listaImoveis");
-
-  loading.classList.remove("hidden");
-  lista.innerHTML = "";
-  empty.classList.add("hidden");
-
+  $("#loadingLista").classList.remove("hidden");
+  $("#listaImoveis").innerHTML = "";
+  $("#emptyState").classList.add("hidden");
   try {
     const res = await fetch(`${API}/api/imoveis`);
     todosImoveis = await res.json();
     atualizarFiltroBairros();
     renderLista();
-  } catch (e) {
-    console.error(e);
-  } finally {
-    loading.classList.add("hidden");
-  }
+  } catch(e) { console.error(e); }
+  finally { $("#loadingLista").classList.add("hidden"); }
 }
 
 function atualizarFiltroBairros() {
   const sel = $("#filtroBairro");
   const atual = sel.value;
-
-  // Coleta bairros únicos, ignorando nulos/vazios, ordena alfabeticamente
-  const bairros = [...new Set(
-    todosImoveis
-      .map(im => im.bairro)
-      .filter(b => b && b.trim())
-  )].sort((a, b) => a.localeCompare(b, "pt-BR"));
-
+  const bairros = [...new Set(todosImoveis.map(im=>im.bairro).filter(b=>b?.trim()))].sort((a,b)=>a.localeCompare(b,"pt-BR"));
   sel.innerHTML = `<option value="">Todos os bairros</option>` +
-    bairros.map(b => `<option value="${b}"${b === atual ? " selected" : ""}>${b}</option>`).join("");
+    bairros.map(b=>`<option value="${b}"${b===atual?" selected":""}>${b}</option>`).join("");
 }
 
 function renderLista() {
-  const lista   = $("#listaImoveis");
-  const empty   = $("#emptyState");
-  const filtro  = $("#filtroStatus").value;
-  const origem  = $("#filtroOrigem").value;
-  const bairro  = $("#filtroBairro").value;
+  const lista  = $("#listaImoveis");
+  const filtro = $("#filtroStatus").value;
+  const origem = $("#filtroOrigem").value;
+  const bairro = $("#filtroBairro").value;
 
   const filtrados = todosImoveis.filter(im => {
-    if (filtro  && im.status !== filtro)   return false;
-    if (origem  && im.origem !== origem)   return false;
-    if (bairro  && im.bairro !== bairro)   return false;
+    if (filtro && im.status !== filtro) return false;
+    if (origem && im.origem !== origem) return false;
+    if (bairro && im.bairro !== bairro) return false;
     return true;
   });
 
   $("#totalCount").textContent = filtrados.length;
   lista.innerHTML = "";
 
-  if (!filtrados.length) { empty.classList.remove("hidden"); return; }
-  empty.classList.add("hidden");
+  if (!filtrados.length) { $("#emptyState").classList.remove("hidden"); return; }
+  $("#emptyState").classList.add("hidden");
 
   filtrados.forEach((im, idx) => {
     const card = criarCard(im, idx + 1);
     lista.appendChild(card);
-    initCarrossel(card.querySelector(".carousel"));
+    initCarrossel(card.querySelector("[data-total]"));
   });
 
-  // Polling se houver processando
+  // Polling
   const processando = todosImoveis.some(im => im.status === "processando");
   if (processando && !pollingTimer) {
     pollingTimer = setInterval(async () => {
       try {
-        const res   = await fetch(`${API}/api/imoveis`);
+        const res = await fetch(`${API}/api/imoveis`);
         const novos = await res.json();
         todosImoveis = novos;
+        atualizarFiltroBairros();
         renderLista();
         if (!novos.some(im => im.status === "processando")) {
-          clearInterval(pollingTimer);
-          pollingTimer = null;
+          clearInterval(pollingTimer); pollingTimer = null;
         }
-      } catch (e) {
-        console.error("Polling erro:", e);
-      }
+      } catch(e) { console.error("Polling erro:", e); }
     }, 3000);
   } else if (!processando && pollingTimer) {
-    clearInterval(pollingTimer);
-    pollingTimer = null;
+    clearInterval(pollingTimer); pollingTimer = null;
   }
 }
 
-function disponivelBadge(disponivel) {
-  // disponivel: 1 = ativo, 0 = indisponível, null = desconhecido
-  if (disponivel === 0) return `<span class="disponivel-badge disponivel-nao">🔴 Indisponível</span>`;
-  if (disponivel === 1) return `<span class="disponivel-badge disponivel-sim">🟢 Ativo</span>`;
-  return "";
-}
-
-const ORIGEM_ICON = {
-  "ZAP Imóveis":  { icon: "🏢", cls: "origem-zap" },
-  "VivaReal":     { icon: "🔵", cls: "origem-vivareal" },
-  "QuintoAndar":  { icon: "🟠", cls: "origem-quintoandar" },
-  "OLX":          { icon: "🟣", cls: "origem-olx" },
-};
-
-function origemBadge(origem) {
-  if (!origem) return "";
-  const meta = ORIGEM_ICON[origem] || { icon: "🌐", cls: "origem-outro" };
-  return `<span class="origem-badge ${meta.cls}">${meta.icon} ${origem}</span>`;
-}
+// ── Card ──────────────────────────────────────────────────────────────────────
 
 function criarCard(im, rank) {
-  const card  = document.createElement("div");
-  card.className = "imovel-card" + (im.disponivel === 0 ? " indisponivel" : "");
+  const card = document.createElement("div");
+  card.className = "card bg-base-100 border border-base-300 shadow-sm hover:shadow-md transition-shadow cursor-pointer overflow-hidden" +
+    (im.disponivel === 0 ? " card-indisponivel" : "");
   card.dataset.id = im.id;
 
   const score = im.score != null ? im.score.toFixed(1) : null;
@@ -312,53 +264,40 @@ function criarCard(im, rank) {
   const imgs  = parseImagens(im);
 
   card.innerHTML = `
-    ${criarCarrossel(imgs, rank, 180)}
-
-    <div class="imovel-body">
-      <div class="imovel-titulo">${im.titulo || "Imóvel sem título"}</div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <div class="imovel-preco">${fmt_preco(im.preco)}</div>
+    ${criarCarrossel(imgs, rank, 200)}
+    <div class="card-body p-4 gap-2">
+      <p class="font-semibold text-sm titulo-clamp">${im.titulo || "Imóvel sem título"}</p>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-primary font-bold text-lg">${fmt_preco(im.preco)}</span>
         ${disponivelBadge(im.disponivel)}
         ${origemBadge(im.origem)}
       </div>
-
-      <div class="imovel-stats">
-        ${im.area_m2   ? `<span class="stat-pill">📐 ${fmt_num(im.area_m2)} m²</span>` : ""}
-        ${im.quartos   ? `<span class="stat-pill">🛏 ${im.quartos} quarto${im.quartos>1?"s":""}</span>` : ""}
-        ${im.banheiros ? `<span class="stat-pill">🚿 ${im.banheiros} banheiro${im.banheiros>1?"s":""}</span>` : ""}
-        ${im.vagas     ? `<span class="stat-pill">🚗 ${im.vagas} vaga${im.vagas>1?"s":""}</span>` : ""}
+      <div class="flex flex-wrap gap-1.5">
+        ${im.area_m2   ? `<span class="badge badge-ghost badge-sm">📐 ${fmt_num(im.area_m2)} m²</span>` : ""}
+        ${im.quartos   ? `<span class="badge badge-ghost badge-sm">🛏 ${im.quartos} quarto${im.quartos>1?"s":""}</span>` : ""}
+        ${im.banheiros ? `<span class="badge badge-ghost badge-sm">🚿 ${im.banheiros} banheiro${im.banheiros>1?"s":""}</span>` : ""}
+        ${im.vagas     ? `<span class="badge badge-ghost badge-sm">🚗 ${im.vagas} vaga${im.vagas>1?"s":""}</span>` : ""}
       </div>
-
-      <div class="imovel-distancias">
-        ${im.dist_centro_carro_km  != null ? `<div class="dist-row">🚗 Centro BH: ${fmt_dist(im.dist_centro_carro_km)} · ${fmt_tempo(im.tempo_centro_carro_min)}</div>` : ""}
-        ${im.dist_centro_onibus_km != null ? `<div class="dist-row">🚌 Ônibus: ~${fmt_tempo(im.tempo_centro_onibus_min)}</div>` : ""}
+      <div class="text-xs text-base-content/60 flex flex-col gap-0.5">
+        ${im.dist_centro_carro_km  != null ? `<div>🚗 Centro BH: ${fmt_dist(im.dist_centro_carro_km)} · ${fmt_tempo(im.tempo_centro_carro_min)}</div>` : ""}
+        ${im.dist_centro_onibus_km != null ? `<div>🚌 Ônibus: ~${fmt_tempo(im.tempo_centro_onibus_min)}</div>` : ""}
         ${renderLinhasCard(im)}
-        ${im.dist_supermercado_km  != null ? `<div class="dist-row">🛒 Supermercado: ${fmt_dist(im.dist_supermercado_km)}</div>` : ""}
+        ${im.dist_supermercado_km  != null ? `<div>🛒 Supermercado: ${fmt_dist(im.dist_supermercado_km)}</div>` : ""}
       </div>
-
-      <span class="status-badge status-${im.status}">
-        ${{ ok:"✅ Processado", processando:"⏳ Processando...", erro:"❌ Erro",
-            sem_coordenadas:"📍 Sem localização", pendente:"⏸ Pendente" }[im.status] || im.status}
-      </span>
+      <span class="badge ${statusBadgeClass(im.status)} badge-sm self-start">${statusLabel(im.status)}</span>
     </div>
-
-    <div class="imovel-footer">
-      <div class="score-wrap">
-        <div>
-          <div class="score-num">${score ?? "—"}</div>
-          <div class="score-label">/ 100</div>
-        </div>
-        <div style="flex:1">
-          <div class="score-bar-wrap">
-            <div class="score-bar ${cor}" style="width:${score ?? 0}%"></div>
-          </div>
-          <span class="badge-score ${badgeClass(im.badge)}">${im.badge || "sem dados"}</span>
+    <div class="px-4 pb-3 border-t border-base-200 pt-3 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 flex-1 min-w-0">
+        <span class="font-black text-xl shrink-0">${score ?? "—"}</span>
+        <div class="flex-1 min-w-0">
+          <div class="score-bar-track mb-1"><div class="score-bar ${cor}" style="width:${score ?? 0}%"></div></div>
+          <span class="badge ${scoreBadgeClass(im.badge)} badge-sm">${im.badge || "sem dados"}</span>
         </div>
       </div>
-      <div class="card-actions">
-        <button class="btn-icon" title="Ver detalhes"  data-action="detalhe"     data-id="${im.id}">🔍</button>
-        <button class="btn-icon" title="Reprocessar"   data-action="reprocessar" data-id="${im.id}">🔄</button>
-        <button class="btn-icon danger" title="Remover" data-action="remover"    data-id="${im.id}">🗑</button>
+      <div class="flex gap-1 shrink-0">
+        <button class="btn btn-ghost btn-xs" title="Ver detalhes"  data-action="detalhe"     data-id="${im.id}">🔍</button>
+        <button class="btn btn-ghost btn-xs" title="Reprocessar"   data-action="reprocessar" data-id="${im.id}">🔄</button>
+        <button class="btn btn-ghost btn-xs text-error" title="Remover" data-action="remover" data-id="${im.id}">🗑</button>
       </div>
     </div>`;
 
@@ -375,11 +314,10 @@ function criarCard(im, rank) {
       if (action === "remover")     await remover(Number(id));
     });
   });
-
   return card;
 }
 
-// ── Adicionar imóvel ─────────────────────────────────────────────────────────
+// ── Adicionar imóvel ──────────────────────────────────────────────────────────
 
 async function adicionarImovel() {
   const input = $("#inputUrl");
@@ -389,11 +327,9 @@ async function adicionarImovel() {
 
   const btn = $("#btnAdicionar");
   btn.disabled = true; btn.textContent = "Adicionando...";
-
   try {
     const res  = await fetch(`${API}/api/imoveis`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
     });
     const data = await res.json();
@@ -401,11 +337,8 @@ async function adicionarImovel() {
     showMsg(msg, "Imóvel adicionado! Processando em segundo plano...", "success");
     input.value = "";
     await carregarImoveis();
-  } catch (e) {
-    showMsg(msg, "Erro de conexão.", "error");
-  } finally {
-    btn.disabled = false; btn.textContent = "Adicionar";
-  }
+  } catch(e) { showMsg(msg, "Erro de conexão.", "error"); }
+  finally { btn.disabled = false; btn.textContent = "Adicionar"; }
 }
 
 async function reprocessar(id) {
@@ -418,91 +351,96 @@ async function remover(id) {
   await carregarImoveis();
 }
 
-// ── Modal Detalhe ────────────────────────────────────────────────────────────
+// ── Modal Detalhe ─────────────────────────────────────────────────────────────
 
 async function abrirDetalhe(id) {
   const modal   = $("#modalDetalhe");
   const content = $("#detalheContent");
-  const title   = $("#detalheTitle");
-
-  content.innerHTML = `<div class="detalhe-wrap"><div class="spinner"></div></div>`;
-  modal.classList.remove("hidden");
+  $("#detalheTitle").textContent = "Carregando...";
+  content.innerHTML = `<div class="flex justify-center py-10"><span class="loading loading-spinner loading-lg"></span></div>`;
+  modal.showModal();
 
   try {
     const res = await fetch(`${API}/api/imoveis/${id}`);
     const im  = await res.json();
-    title.textContent = im.titulo || "Detalhes do Imóvel";
+    $("#detalheTitle").textContent = im.titulo || "Detalhes do Imóvel";
 
     const score = im.score != null ? im.score.toFixed(1) : "—";
     const cor   = scoreColor(im.score);
     const imgs  = parseImagens(im);
 
     content.innerHTML = `
-      <div class="detalhe-wrap">
+      <div class="flex flex-col gap-4">
         ${criarCarrossel(imgs, null, 260)}
 
-        <div class="detalhe-section">
-          <h4>Identificação</h4>
-          <div class="detalhe-grid">
-            <div class="detalhe-item"><div class="di-label">Preço</div><div class="di-val">${fmt_preco(im.preco)}</div></div>
-            <div class="detalhe-item"><div class="di-label">Área</div><div class="di-val">${im.area_m2 ? fmt_num(im.area_m2)+" m²" : "—"}</div></div>
-            <div class="detalhe-item"><div class="di-label">Quartos</div><div class="di-val">${im.quartos ?? "—"}</div></div>
-            <div class="detalhe-item"><div class="di-label">Banheiros</div><div class="di-val">${im.banheiros ?? "—"}</div></div>
-            <div class="detalhe-item"><div class="di-label">Vagas</div><div class="di-val">${im.vagas ?? "—"}</div></div>
-            <div class="detalhe-item"><div class="di-label">Status</div><div class="di-val"><span class="status-badge status-${im.status}">${im.status}</span></div></div>
-            <div class="detalhe-item"><div class="di-label">Disponível</div><div class="di-val">${disponivelBadge(im.disponivel) || "—"}</div></div>
-            <div class="detalhe-item"><div class="di-label">Origem</div><div class="di-val">${origemBadge(im.origem) || "—"}</div></div>
+        <div>
+          <p class="text-xs font-bold uppercase tracking-widest text-base-content/40 mb-2">Identificação</p>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            ${detalheItem("Preço", fmt_preco(im.preco))}
+            ${detalheItem("Área", im.area_m2 ? fmt_num(im.area_m2)+" m²" : "—")}
+            ${detalheItem("Quartos", im.quartos ?? "—")}
+            ${detalheItem("Banheiros", im.banheiros ?? "—")}
+            ${detalheItem("Vagas", im.vagas ?? "—")}
+            ${detalheItem("Status", `<span class="badge ${statusBadgeClass(im.status)} badge-sm">${statusLabel(im.status)}</span>`)}
+            ${detalheItem("Disponível", disponivelBadge(im.disponivel) || "—")}
+            ${detalheItem("Origem", origemBadge(im.origem) || "—")}
           </div>
         </div>
 
-        <div class="detalhe-section">
-          <h4>Localização</h4>
-          <div class="detalhe-grid">
-            <div class="detalhe-item" style="grid-column:1/-1">
-              <div class="di-label">Endereço</div>
-              <div class="di-val" style="font-size:.9rem">${im.endereco || im.bairro || "—"}</div>
+        <div>
+          <p class="text-xs font-bold uppercase tracking-widest text-base-content/40 mb-2">Localização</p>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div class="col-span-full bg-base-200 rounded-lg p-3">
+              <div class="text-xs text-base-content/50">Endereço</div>
+              <div class="font-semibold text-sm mt-0.5">${im.endereco || im.bairro || "—"}</div>
             </div>
-            <div class="detalhe-item"><div class="di-label">🛒 Supermercado</div><div class="di-val">${fmt_dist(im.dist_supermercado_km)}</div></div>
-            <div class="detalhe-item"><div class="di-label">🚗 Centro (carro)</div><div class="di-val">${fmt_dist(im.dist_centro_carro_km)}</div></div>
-            <div class="detalhe-item"><div class="di-label">⏱ Tempo carro</div><div class="di-val">${fmt_tempo(im.tempo_centro_carro_min)}</div></div>
-            <div class="detalhe-item"><div class="di-label">🚌 Tempo ônibus</div><div class="di-val">${fmt_tempo(im.tempo_centro_onibus_min)}</div></div>
+            ${detalheItem("🛒 Supermercado", fmt_dist(im.dist_supermercado_km))}
+            ${detalheItem("🚗 Centro (carro)", fmt_dist(im.dist_centro_carro_km))}
+            ${detalheItem("⏱ Tempo carro", fmt_tempo(im.tempo_centro_carro_min))}
+            ${detalheItem("🚌 Tempo ônibus", fmt_tempo(im.tempo_centro_onibus_min))}
             ${renderLinhasDetalhe(im)}
           </div>
         </div>
 
-        <div class="detalhe-section">
-          <h4>Score de Ranking</h4>
-          <div style="display:flex;align-items:center;gap:16px;padding:12px;background:var(--bg);border-radius:8px">
-            <div style="font-size:2.5rem;font-weight:800;color:var(--text)">${score}</div>
-            <div style="flex:1">
-              <div class="score-bar-wrap" style="height:10px;margin-bottom:6px">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-widest text-base-content/40 mb-2">Score de Ranking</p>
+          <div class="bg-base-200 rounded-lg p-4 flex items-center gap-4">
+            <span class="text-4xl font-black">${score}</span>
+            <div class="flex-1">
+              <div class="score-bar-track mb-2" style="height:10px">
                 <div class="score-bar ${cor}" style="width:${im.score ?? 0}%"></div>
               </div>
-              <span class="badge-score ${badgeClass(im.badge)}">${im.badge || "sem dados"}</span>
+              <span class="badge ${scoreBadgeClass(im.badge)}">${im.badge || "sem dados"}</span>
             </div>
           </div>
         </div>
 
-        <a class="detalhe-link" href="${im.url}" target="_blank" rel="noopener">🔗 Ver anúncio original</a>
+        <a href="${im.url}" target="_blank" rel="noopener"
+           class="btn btn-outline btn-primary btn-sm self-start">🔗 Ver anúncio original</a>
       </div>`;
 
-    // Inicializa carrossel do modal
-    initCarrossel(content.querySelector(".carousel"));
-
-  } catch (e) {
-    content.innerHTML = `<div class="detalhe-wrap"><p>Erro ao carregar detalhes.</p></div>`;
+    initCarrossel(content.querySelector("[data-total]"));
+  } catch(e) {
+    content.innerHTML = `<p class="text-error py-4">Erro ao carregar detalhes.</p>`;
   }
 }
 
-// ── Modal Pesos ──────────────────────────────────────────────────────────────
+function detalheItem(label, val) {
+  return `<div class="bg-base-200 rounded-lg p-3">
+    <div class="text-xs text-base-content/50">${label}</div>
+    <div class="font-bold text-sm mt-0.5">${val}</div>
+  </div>`;
+}
+
+// ── Modal Pesos ───────────────────────────────────────────────────────────────
 
 const PESOS_META = [
-  { key: "peso_preco",              label: "💰 Preço",               desc: "Menor preço = melhor" },
-  { key: "peso_area",               label: "📐 Área (m²)",           desc: "Maior área = melhor" },
-  { key: "peso_quartos",            label: "🛏 Quartos",             desc: "Mais quartos = melhor" },
-  { key: "peso_banheiros",          label: "🚿 Banheiros",           desc: "Mais banheiros = melhor" },
-  { key: "peso_dist_supermercado",  label: "🛒 Dist. Supermercado",  desc: "Mais perto = melhor" },
-  { key: "peso_dist_centro_carro",  label: "🚗 Dist. Centro (carro)",desc: "Mais perto = melhor" },
+  { key: "peso_preco",              label: "💰 Preço",                desc: "Menor preço = melhor" },
+  { key: "peso_area",               label: "📐 Área (m²)",            desc: "Maior área = melhor" },
+  { key: "peso_quartos",            label: "🛏 Quartos",              desc: "Mais quartos = melhor" },
+  { key: "peso_banheiros",          label: "🚿 Banheiros",            desc: "Mais banheiros = melhor" },
+  { key: "peso_dist_supermercado",  label: "🛒 Dist. Supermercado",   desc: "Mais perto = melhor" },
+  { key: "peso_dist_centro_carro",  label: "🚗 Dist. Centro (carro)", desc: "Mais perto = melhor" },
   { key: "peso_dist_centro_onibus", label: "🚌 Dist. Centro (ônibus)",desc: "Mais perto = melhor" },
 ];
 
@@ -510,47 +448,41 @@ async function abrirPesos() {
   const res   = await fetch(`${API}/api/pesos`);
   const pesos = await res.json();
   $("#pesosForm").innerHTML = PESOS_META.map(p => `
-    <div class="peso-item">
-      <label for="p_${p.key}">${p.label}</label>
-      <small style="color:var(--text-muted);font-size:.75rem">${p.desc}</small>
-      <input type="range" id="p_${p.key}" name="${p.key}" min="0" max="100" step="1"
-             value="${pesos[p.key] ?? 10}" oninput="this.nextElementSibling.textContent=this.value" />
+    <div>
+      <label class="text-xs font-semibold text-base-content/60">${p.label}</label>
+      <p class="text-xs text-base-content/40 mb-1">${p.desc}</p>
+      <input type="range" id="p_${p.key}" min="0" max="100" step="1"
+             value="${pesos[p.key] ?? 10}" class="range range-primary range-xs w-full"
+             oninput="this.nextElementSibling.textContent=this.value" />
       <div class="peso-val">${pesos[p.key] ?? 10}</div>
     </div>`).join("");
-  $("#modalPesos").classList.remove("hidden");
+  $("#modalPesos").showModal();
 }
 
 async function salvarPesos() {
   const msg = $("#pesosMsg");
   const btn = $("#btnSalvarPesos");
   const body = {};
-  PESOS_META.forEach(p => {
-    const el = $(`#p_${p.key}`);
-    body[p.key] = el ? Number(el.value) : 10;
-  });
+  PESOS_META.forEach(p => { body[p.key] = Number($(`#p_${p.key}`)?.value ?? 10); });
   btn.disabled = true; btn.textContent = "Salvando...";
   try {
     const res = await fetch(`${API}/api/pesos`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (res.ok) {
       showMsg(msg, "Pesos salvos! Scores recalculados.", "success");
       await carregarImoveis();
-      setTimeout(() => $("#modalPesos").classList.add("hidden"), 1500);
+      setTimeout(() => $("#modalPesos").close(), 1500);
     } else {
       const d = await res.json();
       showMsg(msg, d.erro || "Erro ao salvar.", "error");
     }
-  } catch (e) {
-    showMsg(msg, "Erro de conexão.", "error");
-  } finally {
-    btn.disabled = false; btn.textContent = "Salvar e Recalcular";
-  }
+  } catch(e) { showMsg(msg, "Erro de conexão.", "error"); }
+  finally { btn.disabled = false; btn.textContent = "Salvar e Recalcular"; }
 }
 
-// ── Event listeners ──────────────────────────────────────────────────────────
+// ── Event listeners ───────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
   carregarImoveis();
@@ -564,13 +496,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#btnPesos").addEventListener("click", abrirPesos);
   $("#btnSalvarPesos").addEventListener("click", salvarPesos);
-  $("#btnCancelarPesos").addEventListener("click", () => $("#modalPesos").classList.add("hidden"));
-  $("#btnFecharPesos").addEventListener("click",   () => $("#modalPesos").classList.add("hidden"));
-  $("#btnFecharDetalhe").addEventListener("click", () => $("#modalDetalhe").classList.add("hidden"));
-
-  $$(".modal-overlay").forEach(overlay => {
-    overlay.addEventListener("click", e => {
-      if (e.target === overlay) overlay.classList.add("hidden");
-    });
-  });
+  $("#btnCancelarPesos").addEventListener("click", () => $("#modalPesos").close());
+  $("#btnFecharPesos").addEventListener("click",   () => $("#modalPesos").close());
+  $("#btnFecharDetalhe").addEventListener("click", () => $("#modalDetalhe").close());
 });
