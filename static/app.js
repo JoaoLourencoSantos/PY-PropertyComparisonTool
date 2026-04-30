@@ -497,69 +497,72 @@ async function importarTxt(file) {
     return;
   }
 
-  const modal   = $("#modalImport");
-  const bar     = $("#importBar");
-  const status  = $("#importStatus");
-  const pct     = $("#importPct");
-  const log     = $("#importLog");
-  const desc    = $("#importDesc");
+  const modal     = $("#modalImport");
+  const bar       = $("#importBar");
+  const status    = $("#importStatus");
+  const pct       = $("#importPct");
+  const log       = $("#importLog");
+  const desc      = $("#importDesc");
   const btnFechar = $("#btnFecharImport");
 
   log.innerHTML = "";
   bar.style.width = "0%";
   btnFechar.disabled = true;
-  desc.textContent = `Importando ${urls.length} link${urls.length > 1 ? "s" : ""}...`;
+  desc.textContent = `Enviando ${urls.length} link${urls.length > 1 ? "s" : ""} para a fila...`;
+  status.textContent = "0 / 0";
+  pct.textContent = "0%";
   modal.showModal();
-
-  let ok = 0, duplicado = 0, erro = 0;
 
   function addLog(msg, type = "normal") {
     const el = document.createElement("div");
-    el.className = type === "ok"    ? "text-success" :
-                   type === "erro"  ? "text-error"   :
-                   type === "skip"  ? "text-base-content/40" : "";
+    el.className = type === "ok"   ? "text-success" :
+                   type === "erro" ? "text-error"   :
+                   type === "skip" ? "text-base-content/40" : "";
     el.textContent = msg;
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
   }
 
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
-    const progresso = i + 1;
-    status.textContent = `${progresso} / ${urls.length}`;
-    pct.textContent    = Math.round((progresso / urls.length) * 100) + "%";
-    bar.style.width    = pct.textContent;
+  try {
+    // Envia todas as URLs de uma vez — backend salva como 'pendente' sem lançar threads
+    const res  = await fetch(`${API}/api/imoveis/importar-lote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls }),
+    });
+    const data = await res.json();
 
-    try {
-      const res  = await fetch(`${API}/api/imoveis`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
-
-      if (res.status === 409 || data.erro?.includes("duplicad") || data.erro?.includes("UNIQUE")) {
-        duplicado++;
-        addLog(`⏭ Duplicado: ${url.slice(0, 60)}...`, "skip");
-      } else if (!res.ok) {
-        erro++;
-        addLog(`❌ Erro: ${url.slice(0, 60)}... — ${data.erro || res.status}`, "erro");
-      } else {
-        ok++;
-        addLog(`✅ Adicionado #${data.id}: ${url.slice(0, 60)}...`, "ok");
-      }
-    } catch(e) {
-      erro++;
-      addLog(`❌ Falha de rede: ${url.slice(0, 60)}...`, "erro");
+    if (!res.ok) {
+      addLog(`❌ Erro: ${data.erro || res.status}`, "erro");
+      desc.textContent = "Erro ao importar.";
+      btnFechar.disabled = false;
+      return;
     }
 
-    // Pequena pausa para não sobrecarregar o servidor
-    await new Promise(r => setTimeout(r, 300));
+    // Mostra resultado por URL
+    (data.resultados || []).forEach(r => {
+      if (r.status === "pendente")
+        addLog(`✅ Na fila #${r.id}: ${r.url.slice(0, 70)}`, "ok");
+      else if (r.status === "ignorado")
+        addLog(`⏭ Ignorado: ${r.url.slice(0, 70)} — ${r.motivo}`, "skip");
+      else
+        addLog(`❌ Erro: ${r.url.slice(0, 70)} — ${r.motivo}`, "erro");
+    });
+
+    const total = data.resultados?.length || 0;
+    bar.style.width = "100%";
+    status.textContent = `${total} / ${total}`;
+    pct.textContent = "100%";
+    desc.textContent = `${data.adicionados} link${data.adicionados !== 1 ? "s" : ""} adicionados à fila. O processamento acontece automaticamente.`;
+
+    await carregarImoveis();
+
+  } catch(e) {
+    addLog(`❌ Falha de conexão: ${e.message}`, "erro");
+    desc.textContent = "Erro de conexão.";
   }
 
-  desc.textContent = `Concluído — ${ok} adicionados, ${duplicado} duplicados, ${erro} erros.`;
   btnFechar.disabled = false;
-  await carregarImoveis();
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────

@@ -147,6 +147,45 @@ def adicionar_imovel():
     return jsonify({"id": imovel_id, "status": "processando"}), 202
 
 
+@bp.route("/api/imoveis/importar-lote", methods=["POST"])
+def importar_lote():
+    """
+    Recebe uma lista de URLs e salva todas como 'pendente' sem lançar threads.
+    O processamento acontece gradualmente quando GET /api/imoveis é chamado.
+    Ideal para importação em massa sem sobrecarregar o servidor.
+    """
+    body = request.get_json(force=True)
+    urls = body.get("urls") or []
+    if not urls:
+        return jsonify({"erro": "Lista de URLs vazia"}), 400
+
+    resultados = []
+    for url in urls:
+        url = (url or "").strip().split("?")[0].rstrip("/")
+        if not url or not url.startswith("http"):
+            resultados.append({"url": url, "status": "ignorado", "motivo": "URL inválida"})
+            continue
+        try:
+            dados = {
+                "url": url, "origem": None, "titulo": None, "preco": None,
+                "area_m2": None, "quartos": None, "banheiros": None, "vagas": None,
+                "endereco": None, "bairro": None, "cidade": "Belo Horizonte",
+                "lat": None, "lng": None,
+                "dist_supermercado_km": None, "dist_centro_carro_km": None,
+                "dist_centro_onibus_km": None, "tempo_centro_carro_min": None,
+                "tempo_centro_onibus_min": None, "linhas_onibus": None,
+                "imagem_url": None, "imagens_json": None,
+                "score": None, "status": "pendente",
+            }
+            imovel_id = upsert_imovel(dados)
+            resultados.append({"url": url, "id": imovel_id, "status": "pendente"})
+        except Exception as e:
+            resultados.append({"url": url, "status": "erro", "motivo": str(e)})
+
+    adicionados = sum(1 for r in resultados if r["status"] == "pendente")
+    return jsonify({"adicionados": adicionados, "resultados": resultados}), 202
+
+
 @bp.route("/api/imoveis/<int:imovel_id>", methods=["DELETE"])
 def remover_imovel(imovel_id):
     delete_imovel(imovel_id)
