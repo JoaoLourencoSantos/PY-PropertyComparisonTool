@@ -8,11 +8,24 @@
 }
 .modal-box .text-base-content\/50,
 .modal-box .text-base-content\/60 {
-  color: oklch(var(--bc) / 0.65) !important;
+  color: oklch(var(--bc) / 0.85) !important;
 }
 .modal-box .text-base-content\/40 {
-  color: oklch(var(--bc) / 0.55) !important;
+  color: oklch(var(--bc) / 0.75) !important;
 }
+
+.card-body {
+  color: oklch(var(--bc));
+}
+.card-body .text-base-content\/50,
+.card-body .text-base-content\/60 {
+  color: oklch(var(--bc) / 0.95) !important;
+}
+.card-body .text-base-content\/40 {
+  color: oklch(var(--bc) / 0.85) !important;
+}
+
+
 
 /* ── Badges suavizadas — menos saturação ─────────────────────────────────── */
 /* Sobrescreve as cores padrão do DaisyUI para badges */
