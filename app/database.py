@@ -34,9 +34,7 @@ def _row_to_dict(row) -> dict:
 
 
 def init_db():
-    conn = get_connection()
-
-    # libsql não tem executescript — executa cada statement separadamente
+    # libsql fecha streams entre chamadas — reconecta para cada operação
     stmts = [
         """CREATE TABLE IF NOT EXISTS imoveis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,19 +80,22 @@ def init_db():
     ]
 
     for stmt in stmts:
+        conn = get_connection()
         conn.execute(stmt)
-    conn.commit()
+        conn.commit()
 
     # Migração: adiciona colunas se banco já existia sem elas
     for col in ["imagens_json TEXT", "linhas_onibus TEXT", "disponivel INTEGER DEFAULT 1",
                 "checado_em TIMESTAMP", "origem TEXT"]:
         try:
+            conn = get_connection()
             conn.execute(f"ALTER TABLE imoveis ADD COLUMN {col}")
             conn.commit()
         except Exception:
             pass  # coluna já existe
 
     # Migração: preenche origem para imóveis já existentes com base na URL
+    conn = get_connection()
     conn.execute("""
         UPDATE imoveis SET origem = CASE
             WHEN url LIKE '%zapimoveis%'   THEN 'ZAP Imóveis'
@@ -108,6 +109,7 @@ def init_db():
     conn.commit()
 
     # Recuperação: imóveis presos em 'processando' há mais de 5 min voltam para 'pendente'
+    conn = get_connection()
     conn.execute("""
         UPDATE imoveis SET status = 'pendente'
         WHERE status = 'processando'
