@@ -482,6 +482,86 @@ async function salvarPesos() {
   finally { btn.disabled = false; btn.textContent = "Salvar e Recalcular"; }
 }
 
+// ── Importar TXT ──────────────────────────────────────────────────────────────
+
+async function importarTxt(file) {
+  const text = await file.text();
+
+  // Extrai URLs válidas — uma por linha, ignora linhas vazias e comentários (#)
+  const urls = text.split("\n")
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith("#") && l.startsWith("http"));
+
+  if (!urls.length) {
+    alert("Nenhuma URL válida encontrada no arquivo.");
+    return;
+  }
+
+  const modal   = $("#modalImport");
+  const bar     = $("#importBar");
+  const status  = $("#importStatus");
+  const pct     = $("#importPct");
+  const log     = $("#importLog");
+  const desc    = $("#importDesc");
+  const btnFechar = $("#btnFecharImport");
+
+  log.innerHTML = "";
+  bar.style.width = "0%";
+  btnFechar.disabled = true;
+  desc.textContent = `Importando ${urls.length} link${urls.length > 1 ? "s" : ""}...`;
+  modal.showModal();
+
+  let ok = 0, duplicado = 0, erro = 0;
+
+  function addLog(msg, type = "normal") {
+    const el = document.createElement("div");
+    el.className = type === "ok"    ? "text-success" :
+                   type === "erro"  ? "text-error"   :
+                   type === "skip"  ? "text-base-content/40" : "";
+    el.textContent = msg;
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    const progresso = i + 1;
+    status.textContent = `${progresso} / ${urls.length}`;
+    pct.textContent    = Math.round((progresso / urls.length) * 100) + "%";
+    bar.style.width    = pct.textContent;
+
+    try {
+      const res  = await fetch(`${API}/api/imoveis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+
+      if (res.status === 409 || data.erro?.includes("duplicad") || data.erro?.includes("UNIQUE")) {
+        duplicado++;
+        addLog(`⏭ Duplicado: ${url.slice(0, 60)}...`, "skip");
+      } else if (!res.ok) {
+        erro++;
+        addLog(`❌ Erro: ${url.slice(0, 60)}... — ${data.erro || res.status}`, "erro");
+      } else {
+        ok++;
+        addLog(`✅ Adicionado #${data.id}: ${url.slice(0, 60)}...`, "ok");
+      }
+    } catch(e) {
+      erro++;
+      addLog(`❌ Falha de rede: ${url.slice(0, 60)}...`, "erro");
+    }
+
+    // Pequena pausa para não sobrecarregar o servidor
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  desc.textContent = `Concluído — ${ok} adicionados, ${duplicado} duplicados, ${erro} erros.`;
+  btnFechar.disabled = false;
+  await carregarImoveis();
+}
+
 // ── Event listeners ───────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -493,6 +573,16 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#filtroStatus").addEventListener("change", renderLista);
   $("#filtroOrigem").addEventListener("change", renderLista);
   $("#filtroBairro").addEventListener("change", renderLista);
+
+  // Importar TXT
+  $("#inputImportTxt").addEventListener("change", e => {
+    const file = e.target.files[0];
+    if (file) {
+      importarTxt(file);
+      e.target.value = ""; // reset para permitir reimportar o mesmo arquivo
+    }
+  });
+  $("#btnFecharImport").addEventListener("click", () => $("#modalImport").close());
 
   $("#btnPesos").addEventListener("click", abrirPesos);
   $("#btnSalvarPesos").addEventListener("click", salvarPesos);
