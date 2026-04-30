@@ -3,7 +3,7 @@ VENV   = venv
 PIP    = pip
 PYTHON = python3
 
-.PHONY: help venv install playwright seed run clean reset
+.PHONY: help venv install playwright seed run run-turso clean reset
 
 help:
 	@echo ""
@@ -13,7 +13,8 @@ help:
 	@echo "  make install     Instala as dependências no venv"
 	@echo "  make playwright  Baixa o Chromium para o Playwright"
 	@echo "  make seed        Importa os links de imóveis no banco"
-	@echo "  make run         Sobe o servidor em http://localhost:5000"
+	@echo "  make run         Sobe o servidor local (SQLite)"
+	@echo "  make run-turso   Sobe o servidor local apontando para o Turso"
 	@echo "  make clean       Remove o banco imoveis.db"
 	@echo "  make reset       Remove venv + banco (recomeço total)"
 	@echo ""
@@ -38,8 +39,14 @@ playwright:
 seed:
 	$(PYTHON) seed_links.py
 
-## 5. Sobe o servidor
+## 5. Sobe o servidor (SQLite local)
 run:
+	$(PYTHON) run.py
+
+## 5b. Sobe o servidor apontando para o Turso (produção)
+run-turso:
+	TURSO_URL="libsql://propertycomparisontool-joaolourencosantos.aws-us-east-1.turso.io" \
+	TURSO_TOKEN="eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3Nzc1NjQ4NTksImlkIjoiMDE5ZGRlZjktMDEwMS03YmFmLWJmNGItMjRhZWU0YWQyMWQ4IiwicmlkIjoiYWJhODVhMjEtMDkxYi00ZTUyLTg4ZTUtNGM3NDY3NDg0ZGQ2In0.dy1Mc7g35v5c982mj80O_Xn6EpwIV_N18cyFqxK7ujr2sgP6xfB4S9oD5IAfmNAl2meZah5DzLF-8IPCnLx3Cw" \
 	$(PYTHON) run.py
 
 ## 6. Remove o banco
