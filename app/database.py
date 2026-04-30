@@ -172,11 +172,7 @@ def upsert_imovel(data: dict):
             dist_supermercado_km, dist_centro_carro_km, dist_centro_onibus_km,
             tempo_centro_carro_min, tempo_centro_onibus_min,
             imagem_url, imagens_json, linhas_onibus, score, status)
-        VALUES (:url, :origem, :titulo, :preco, :area_m2, :quartos, :banheiros, :vagas,
-            :endereco, :bairro, :cidade, :lat, :lng,
-            :dist_supermercado_km, :dist_centro_carro_km, :dist_centro_onibus_km,
-            :tempo_centro_carro_min, :tempo_centro_onibus_min,
-            :imagem_url, :imagens_json, :linhas_onibus, :score, :status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(url) DO UPDATE SET
             origem = excluded.origem,
             titulo = excluded.titulo,
@@ -201,10 +197,19 @@ def upsert_imovel(data: dict):
             score = excluded.score,
             status = excluded.status,
             atualizado_em = CURRENT_TIMESTAMP
-    """, data)
+    """, (
+        data["url"], data.get("origem"), data.get("titulo"), data.get("preco"),
+        data.get("area_m2"), data.get("quartos"), data.get("banheiros"), data.get("vagas"),
+        data.get("endereco"), data.get("bairro"), data.get("cidade"),
+        data.get("lat"), data.get("lng"),
+        data.get("dist_supermercado_km"), data.get("dist_centro_carro_km"),
+        data.get("dist_centro_onibus_km"), data.get("tempo_centro_carro_min"),
+        data.get("tempo_centro_onibus_min"), data.get("imagem_url"),
+        data.get("imagens_json"), data.get("linhas_onibus"),
+        data.get("score"), data.get("status"),
+    ))
     conn.commit()
 
-    # lastrowid = 0 em update — busca o id pela URL
     imovel_id = cur.lastrowid
     if not imovel_id:
         cur2 = conn.execute("SELECT id FROM imoveis WHERE url = ?", (data["url"],))
@@ -229,15 +234,19 @@ def update_pesos(pesos: dict):
     conn = get_connection()
     conn.execute("""
         UPDATE pesos SET
-            peso_preco = :peso_preco,
-            peso_area = :peso_area,
-            peso_quartos = :peso_quartos,
-            peso_banheiros = :peso_banheiros,
-            peso_dist_supermercado = :peso_dist_supermercado,
-            peso_dist_centro_carro = :peso_dist_centro_carro,
-            peso_dist_centro_onibus = :peso_dist_centro_onibus
+            peso_preco = ?,
+            peso_area = ?,
+            peso_quartos = ?,
+            peso_banheiros = ?,
+            peso_dist_supermercado = ?,
+            peso_dist_centro_carro = ?,
+            peso_dist_centro_onibus = ?
         WHERE id = 1
-    """, pesos)
+    """, (
+        pesos["peso_preco"], pesos["peso_area"], pesos["peso_quartos"],
+        pesos["peso_banheiros"], pesos["peso_dist_supermercado"],
+        pesos["peso_dist_centro_carro"], pesos["peso_dist_centro_onibus"],
+    ))
     conn.commit()
 
 
