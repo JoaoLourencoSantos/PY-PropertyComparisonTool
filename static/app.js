@@ -209,6 +209,7 @@ async function carregarImoveis() {
   try {
     const res = await fetch(`${API}/api/imoveis`);
     todosImoveis = await res.json();
+    atualizarFiltroBairros();
     renderLista();
   } catch (e) {
     console.error(e);
@@ -217,14 +218,34 @@ async function carregarImoveis() {
   }
 }
 
-function renderLista() {
-  const lista  = $("#listaImoveis");
-  const empty  = $("#emptyState");
-  const filtro = $("#filtroStatus").value;
+function atualizarFiltroBairros() {
+  const sel = $("#filtroBairro");
+  const atual = sel.value;
 
-  const filtrados = filtro
-    ? todosImoveis.filter(im => im.status === filtro)
-    : todosImoveis;
+  // Coleta bairros únicos, ignorando nulos/vazios, ordena alfabeticamente
+  const bairros = [...new Set(
+    todosImoveis
+      .map(im => im.bairro)
+      .filter(b => b && b.trim())
+  )].sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  sel.innerHTML = `<option value="">Todos os bairros</option>` +
+    bairros.map(b => `<option value="${b}"${b === atual ? " selected" : ""}>${b}</option>`).join("");
+}
+
+function renderLista() {
+  const lista   = $("#listaImoveis");
+  const empty   = $("#emptyState");
+  const filtro  = $("#filtroStatus").value;
+  const origem  = $("#filtroOrigem").value;
+  const bairro  = $("#filtroBairro").value;
+
+  const filtrados = todosImoveis.filter(im => {
+    if (filtro  && im.status !== filtro)   return false;
+    if (origem  && im.origem !== origem)   return false;
+    if (bairro  && im.bairro !== bairro)   return false;
+    return true;
+  });
 
   $("#totalCount").textContent = filtrados.length;
   lista.innerHTML = "";
@@ -538,6 +559,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#inputUrl").addEventListener("keydown", e => { if (e.key === "Enter") adicionarImovel(); });
   $("#btnAtualizar").addEventListener("click", carregarImoveis);
   $("#filtroStatus").addEventListener("change", renderLista);
+  $("#filtroOrigem").addEventListener("change", renderLista);
+  $("#filtroBairro").addEventListener("change", renderLista);
 
   $("#btnPesos").addEventListener("click", abrirPesos);
   $("#btnSalvarPesos").addEventListener("click", salvarPesos);
