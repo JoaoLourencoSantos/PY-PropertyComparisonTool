@@ -479,6 +479,22 @@ def scrape_imovel(url: str) -> dict:
     if not html:
         return {"erro": "Não foi possível acessar a URL"}
 
+    # Detecta página de bloqueio/CAPTCHA — HTML muito curto ou sem conteúdo útil
+    html_lower = html.lower()
+    is_blocked = (
+        len(html) < 5000 or
+        ("captcha" in html_lower) or
+        ("access denied" in html_lower) or
+        ("blocked" in html_lower and "script" not in html_lower[:500]) or
+        # VivaReal/ZAP bloqueados retornam página só com menu de navegação
+        ("__next_f" not in html and "application/ld+json" not in html and
+         "og:title" not in html and len(html) < 50000)
+    )
+    if is_blocked:
+        logger.warning("Possível bloqueio anti-bot detectado para %s (html=%d bytes, preview: %s)",
+                       url_clean, len(html), html[:200].replace("\n", " "))
+        return {"erro": f"Site bloqueou o acesso (anti-bot). HTML recebido: {len(html)} bytes"}
+
     data = {}
 
     # Dispatcher por domínio
