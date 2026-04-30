@@ -193,6 +193,12 @@ def importar_lote():
             yield f"data: {json.dumps({'tipo': 'progresso', 'idx': i+1, 'total': total, 'url': url})}\n\n"
 
             try:
+                # Verifica duplicata
+                existente = get_imovel_by_url(url)
+                if existente:
+                    yield f"data: {json.dumps({'tipo': 'resultado', 'idx': i+1, 'total': total, 'url': url, 'id': existente['id'], 'status': 'duplicado'})}\n\n"
+                    continue
+
                 # Salva como processando
                 dados_iniciais = {
                     "url": url, "origem": None, "titulo": None, "preco": None,

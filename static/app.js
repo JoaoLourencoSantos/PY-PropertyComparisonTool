@@ -568,6 +568,8 @@ async function importarTxt(file) {
           const urlCurta = ev.url.slice(0, 65) + (ev.url.length > 65 ? "…" : "");
           if (ev.status === "ok" || ev.status === "sem_coordenadas")
             addLog(`✅ #${ev.id} ${urlCurta}`, "ok");
+          else if (ev.status === "duplicado")
+            addLog(`⏭ Já existe #${ev.id}: ${urlCurta}`, "skip");
           else if (ev.status === "erro")
             addLog(`❌ ${urlCurta}${ev.motivo ? " — " + ev.motivo : ""}`, "erro");
           else
