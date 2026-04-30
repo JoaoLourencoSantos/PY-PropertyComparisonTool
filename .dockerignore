@@ -1,0 +1,43 @@
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Banco de dados local
+imoveis.db
+*.db
+*.sqlite3
+
+# Ambiente
+.env
+.env.*
+
+# Playwright browsers locais
+playwright/.local-browsers/
+
+# Editor e OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Logs e debug
+*.log
+quintoandar_debug.html
+
+# Testes
+test_api.py
+
+# Kiro
+.kiro/
