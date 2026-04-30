@@ -166,55 +166,49 @@ def get_imovel_by_url(url: str):
 
 def upsert_imovel(data: dict):
     conn = get_connection()
-    cur = conn.execute("""
-        INSERT INTO imoveis (url, origem, titulo, preco, area_m2, quartos, banheiros, vagas,
-            endereco, bairro, cidade, lat, lng,
-            dist_supermercado_km, dist_centro_carro_km, dist_centro_onibus_km,
-            tempo_centro_carro_min, tempo_centro_onibus_min,
-            imagem_url, imagens_json, linhas_onibus, score, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(url) DO UPDATE SET
-            origem = excluded.origem,
-            titulo = excluded.titulo,
-            preco = excluded.preco,
-            area_m2 = excluded.area_m2,
-            quartos = excluded.quartos,
-            banheiros = excluded.banheiros,
-            vagas = excluded.vagas,
-            endereco = excluded.endereco,
-            bairro = excluded.bairro,
-            cidade = excluded.cidade,
-            lat = excluded.lat,
-            lng = excluded.lng,
-            dist_supermercado_km = excluded.dist_supermercado_km,
-            dist_centro_carro_km = excluded.dist_centro_carro_km,
-            dist_centro_onibus_km = excluded.dist_centro_onibus_km,
-            tempo_centro_carro_min = excluded.tempo_centro_carro_min,
-            tempo_centro_onibus_min = excluded.tempo_centro_onibus_min,
-            imagem_url = excluded.imagem_url,
-            imagens_json = excluded.imagens_json,
-            linhas_onibus = excluded.linhas_onibus,
-            score = excluded.score,
-            status = excluded.status,
+
+    # libsql_experimental não suporta ON CONFLICT DO UPDATE
+    # Faz INSERT OR IGNORE + UPDATE separados
+    conn.execute("""
+        INSERT OR IGNORE INTO imoveis (url, status)
+        VALUES (?, ?)
+    """, (data["url"], data.get("status", "processando")))
+    conn.commit()
+
+    # Busca o id
+    cur = conn.execute("SELECT id FROM imoveis WHERE url = ?", (data["url"],))
+    row = cur.fetchone()
+    imovel_id = row[0] if row else None
+
+    # Atualiza todos os campos
+    conn = get_connection()
+    conn.execute("""
+        UPDATE imoveis SET
+            origem = ?, titulo = ?, preco = ?, area_m2 = ?,
+            quartos = ?, banheiros = ?, vagas = ?,
+            endereco = ?, bairro = ?, cidade = ?,
+            lat = ?, lng = ?,
+            dist_supermercado_km = ?, dist_centro_carro_km = ?,
+            dist_centro_onibus_km = ?, tempo_centro_carro_min = ?,
+            tempo_centro_onibus_min = ?, imagem_url = ?,
+            imagens_json = ?, linhas_onibus = ?,
+            score = ?, status = ?,
             atualizado_em = CURRENT_TIMESTAMP
+        WHERE url = ?
     """, (
-        data["url"], data.get("origem"), data.get("titulo"), data.get("preco"),
-        data.get("area_m2"), data.get("quartos"), data.get("banheiros"), data.get("vagas"),
-        data.get("endereco"), data.get("bairro"), data.get("cidade"),
-        data.get("lat"), data.get("lng"),
+        data.get("origem"), data.get("titulo"), data.get("preco"),
+        data.get("area_m2"), data.get("quartos"), data.get("banheiros"),
+        data.get("vagas"), data.get("endereco"), data.get("bairro"),
+        data.get("cidade"), data.get("lat"), data.get("lng"),
         data.get("dist_supermercado_km"), data.get("dist_centro_carro_km"),
         data.get("dist_centro_onibus_km"), data.get("tempo_centro_carro_min"),
         data.get("tempo_centro_onibus_min"), data.get("imagem_url"),
         data.get("imagens_json"), data.get("linhas_onibus"),
         data.get("score"), data.get("status"),
+        data["url"],
     ))
     conn.commit()
 
-    imovel_id = cur.lastrowid
-    if not imovel_id:
-        cur2 = conn.execute("SELECT id FROM imoveis WHERE url = ?", (data["url"],))
-        row = cur2.fetchone()
-        imovel_id = row[0] if row else None
     return imovel_id
 
 
