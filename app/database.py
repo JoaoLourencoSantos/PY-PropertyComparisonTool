@@ -203,19 +203,23 @@ def get_all_imoveis() -> list:
         cur = conn.execute(
             "SELECT * FROM imoveis ORDER BY score DESC NULLS LAST, criado_em DESC"
         )
-        return cur.fetchall()
+        rows = cur.fetchall()
+        # sqlite3.Row não tem .get() — normaliza para dict
+        return [dict(r) if not isinstance(r, dict) else r for r in rows]
 
 
 def get_imovel(imovel_id: int) -> dict:
     with get_connection() as conn:
         cur = conn.execute("SELECT * FROM imoveis WHERE id = ?", (imovel_id,))
-        return cur.fetchone()
+        row = cur.fetchone()
+        return dict(row) if row and not isinstance(row, dict) else row
 
 
 def get_imovel_by_url(url: str) -> dict:
     with get_connection() as conn:
         cur = conn.execute("SELECT * FROM imoveis WHERE url = ?", (url,))
-        return cur.fetchone()
+        row = cur.fetchone()
+        return dict(row) if row and not isinstance(row, dict) else row
 
 
 def upsert_imovel(data: dict) -> int:
@@ -231,7 +235,12 @@ def upsert_imovel(data: dict) -> int:
     with get_connection() as conn:
         cur = conn.execute("SELECT id FROM imoveis WHERE url = ?", (data["url"],))
         row = cur.fetchone()
-        imovel_id = row["id"] if row else None
+        if row is None:
+            imovel_id = None
+        elif isinstance(row, dict):
+            imovel_id = row["id"]
+        else:
+            imovel_id = row[0]
 
     # UPDATE com todos os campos
     with get_connection() as conn:
@@ -274,7 +283,10 @@ def delete_imovel(imovel_id: int):
 def get_pesos() -> dict:
     with get_connection() as conn:
         cur = conn.execute("SELECT * FROM pesos WHERE id = 1")
-        return cur.fetchone() or {}
+        row = cur.fetchone()
+        if not row:
+            return {}
+        return dict(row) if not isinstance(row, dict) else row
 
 
 def update_pesos(pesos: dict):
