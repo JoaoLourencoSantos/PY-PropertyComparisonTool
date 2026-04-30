@@ -11,9 +11,11 @@ services:
         value: production
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: TURSO_URL
+        value: "libsql://propertycomparisontool-joaolourencosantos.aws-us-east-1.turso.io"
+      - key: TURSO_TOKEN
+        value: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3Nzc1NjIzNzksImlkIjoiMDE5ZGRlZjktMDEwMS03YmFmLWJmNGItMjRhZWU0YWQyMWQ4IiwicmlkIjoiYWJhODVhMjEtMDkxYi00ZTUyLTg4ZTUtNGM3NDY3NDg0ZGQ2In0.7fJ7mRw6RNb4g_rOvGgqI-myikGKepEQEFLrve4nMOe1kW0WIn88IM5sW8-xdp5uJMTHQ5Ds-JRMC2M9i2SvBg"
       # Proxy residencial para contornar bloqueio Cloudflare do VivaReal/ZAP
-      # Formato: http://usuario:senha@host:porta
-      # Deixe vazio para desativar (scraping local funciona sem proxy)
       - key: PROXY_URL
         value: "http://ilegtyfg:pekuos5xgpma@31.59.20.176:6754"
 

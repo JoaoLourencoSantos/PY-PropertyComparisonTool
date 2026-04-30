@@ -1,21 +1,44 @@
-import sqlite3
 import os
+import logging
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "imoveis.db")
+logger = logging.getLogger(__name__)
+
+# ── Conexão: Turso (produção) ou SQLite local (desenvolvimento) ───────────────
+
+TURSO_URL   = os.environ.get("TURSO_URL", "").strip()
+TURSO_TOKEN = os.environ.get("TURSO_TOKEN", "").strip()
+DB_PATH     = os.path.join(os.path.dirname(os.path.dirname(__file__)), "imoveis.db")
+
+_USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    if _USE_TURSO:
+        import libsql_experimental as libsql
+        conn = libsql.connect(TURSO_URL, auth_token=TURSO_TOKEN)
+    else:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
     return conn
+
+
+def _row_to_dict(row) -> dict:
+    """Converte row para dict — compatível com sqlite3.Row e libsql."""
+    if row is None:
+        return None
+    if hasattr(row, "keys"):
+        return dict(row)
+    # libsql retorna tuplas — precisa do cursor para obter nomes das colunas
+    return row
 
 
 def init_db():
     conn = get_connection()
-    cur = conn.cursor()
 
-    cur.executescript("""
-        CREATE TABLE IF NOT EXISTS imoveis (
+    # libsql não tem executescript — executa cada statement separadamente
+    stmts = [
+        """CREATE TABLE IF NOT EXISTS imoveis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT UNIQUE NOT NULL,
             origem TEXT,
@@ -44,9 +67,8 @@ def init_db():
             checado_em TIMESTAMP,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS pesos (
+        )""",
+        """CREATE TABLE IF NOT EXISTS pesos (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             peso_preco REAL DEFAULT 30,
             peso_area REAL DEFAULT 20,
@@ -55,22 +77,25 @@ def init_db():
             peso_dist_supermercado REAL DEFAULT 10,
             peso_dist_centro_carro REAL DEFAULT 7,
             peso_dist_centro_onibus REAL DEFAULT 8
-        );
+        )""",
+        "INSERT OR IGNORE INTO pesos (id) VALUES (1)",
+    ]
 
-        INSERT OR IGNORE INTO pesos (id) VALUES (1);
-    """)
+    for stmt in stmts:
+        conn.execute(stmt)
+    conn.commit()
 
     # Migração: adiciona colunas se banco já existia sem elas
     for col in ["imagens_json TEXT", "linhas_onibus TEXT", "disponivel INTEGER DEFAULT 1",
                 "checado_em TIMESTAMP", "origem TEXT"]:
         try:
-            cur.execute(f"ALTER TABLE imoveis ADD COLUMN {col}")
+            conn.execute(f"ALTER TABLE imoveis ADD COLUMN {col}")
             conn.commit()
         except Exception:
             pass  # coluna já existe
 
     # Migração: preenche origem para imóveis já existentes com base na URL
-    cur.execute("""
+    conn.execute("""
         UPDATE imoveis SET origem = CASE
             WHEN url LIKE '%zapimoveis%'   THEN 'ZAP Imóveis'
             WHEN url LIKE '%vivareal%'     THEN 'VivaReal'
@@ -83,8 +108,7 @@ def init_db():
     conn.commit()
 
     # Recuperação: imóveis presos em 'processando' há mais de 5 min voltam para 'pendente'
-    # (podem ter ficado presos por crash do servidor ou timeout do Playwright)
-    cur.execute("""
+    conn.execute("""
         UPDATE imoveis SET status = 'pendente'
         WHERE status = 'processando'
           AND (atualizado_em IS NULL
@@ -92,36 +116,55 @@ def init_db():
     """)
     conn.commit()
 
-    conn.close()
+    logger.info("DB inicializado (%s)", "Turso" if _USE_TURSO else f"SQLite local: {DB_PATH}")
+
+
+def _fetchall_as_dicts(cursor) -> list:
+    """Converte resultado do cursor para lista de dicts — compatível com ambos os drivers."""
+    rows = cursor.fetchall()
+    if not rows:
+        return []
+    # sqlite3.Row já tem keys(); libsql retorna tuplas
+    if hasattr(rows[0], "keys"):
+        return [dict(r) for r in rows]
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def _fetchone_as_dict(cursor) -> dict:
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    if hasattr(row, "keys"):
+        return dict(row)
+    cols = [d[0] for d in cursor.description]
+    return dict(zip(cols, row))
 
 
 def get_all_imoveis():
     conn = get_connection()
-    rows = conn.execute(
+    cur = conn.execute(
         "SELECT * FROM imoveis ORDER BY score DESC NULLS LAST, criado_em DESC"
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    )
+    rows = _fetchall_as_dicts(cur)
+    return rows
 
 
 def get_imovel(imovel_id):
     conn = get_connection()
-    row = conn.execute("SELECT * FROM imoveis WHERE id = ?", (imovel_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    cur = conn.execute("SELECT * FROM imoveis WHERE id = ?", (imovel_id,))
+    return _fetchone_as_dict(cur)
 
 
 def get_imovel_by_url(url: str):
     conn = get_connection()
-    row = conn.execute("SELECT * FROM imoveis WHERE url = ?", (url,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    cur = conn.execute("SELECT * FROM imoveis WHERE url = ?", (url,))
+    return _fetchone_as_dict(cur)
 
 
 def upsert_imovel(data: dict):
     conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
+    cur = conn.execute("""
         INSERT INTO imoveis (url, origem, titulo, preco, area_m2, quartos, banheiros, vagas,
             endereco, bairro, cidade, lat, lng,
             dist_supermercado_km, dist_centro_carro_km, dist_centro_onibus_km,
@@ -158,10 +201,13 @@ def upsert_imovel(data: dict):
             atualizado_em = CURRENT_TIMESTAMP
     """, data)
     conn.commit()
-    imovel_id = cur.lastrowid or conn.execute(
-        "SELECT id FROM imoveis WHERE url = ?", (data["url"],)
-    ).fetchone()["id"]
-    conn.close()
+
+    # lastrowid = 0 em update — busca o id pela URL
+    imovel_id = cur.lastrowid
+    if not imovel_id:
+        cur2 = conn.execute("SELECT id FROM imoveis WHERE url = ?", (data["url"],))
+        row = cur2.fetchone()
+        imovel_id = row[0] if row else None
     return imovel_id
 
 
@@ -169,14 +215,12 @@ def delete_imovel(imovel_id):
     conn = get_connection()
     conn.execute("DELETE FROM imoveis WHERE id = ?", (imovel_id,))
     conn.commit()
-    conn.close()
 
 
 def get_pesos():
     conn = get_connection()
-    row = conn.execute("SELECT * FROM pesos WHERE id = 1").fetchone()
-    conn.close()
-    return dict(row) if row else {}
+    cur = conn.execute("SELECT * FROM pesos WHERE id = 1")
+    return _fetchone_as_dict(cur) or {}
 
 
 def update_pesos(pesos: dict):
@@ -193,7 +237,6 @@ def update_pesos(pesos: dict):
         WHERE id = 1
     """, pesos)
     conn.commit()
-    conn.close()
 
 
 def recalculate_all_scores():
